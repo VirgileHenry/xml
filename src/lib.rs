@@ -128,11 +128,7 @@ impl<'src> XmlElement<'src> for Document<'src> {
             }
         }
 
-        Ok(Self {
-            prolog,
-            element,
-            misc,
-        })
+        Ok(Self { prolog, element, misc })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         self.prolog.write(output)?;
@@ -215,34 +211,26 @@ impl<'src> XmlElement<'src> for EntityValue<'src> {
             QuoteKind::Single => loop {
                 match input.chars().next() {
                     Some('&') => literal.push(EntityValueElem::Reference(Reference::parse(input)?)),
-                    Some('%') => {
-                        literal.push(EntityValueElem::PEReference(PEReference::parse(input)?))
-                    }
+                    Some('%') => literal.push(EntityValueElem::PEReference(PEReference::parse(input)?)),
                     Some('\'') => break,
                     Some('<') => return Err(format!("Unexpected char < in AttValue")),
-                    Some(_) => {
-                        literal.push(EntityValueElem::CharSlice(expect_string::<
-                            SingleQuotedEntityValueCharacters,
-                            SingleQuotedEntityValueCharacters,
-                        >(input)?))
-                    }
+                    Some(_) => literal.push(EntityValueElem::CharSlice(expect_string::<
+                        SingleQuotedEntityValueCharacters,
+                        SingleQuotedEntityValueCharacters,
+                    >(input)?)),
                     None => return Err(format!("Unclosed AttValue")),
                 }
             },
             QuoteKind::Double => loop {
                 match input.chars().next() {
                     Some('&') => literal.push(EntityValueElem::Reference(Reference::parse(input)?)),
-                    Some('%') => {
-                        literal.push(EntityValueElem::PEReference(PEReference::parse(input)?))
-                    }
+                    Some('%') => literal.push(EntityValueElem::PEReference(PEReference::parse(input)?)),
                     Some('"') => break,
                     Some('<') => return Err(format!("Unexpected char < in AttValue")),
-                    Some(_) => {
-                        literal.push(EntityValueElem::CharSlice(expect_string::<
-                            DoubleQuotedEntityValueCharacters,
-                            DoubleQuotedEntityValueCharacters,
-                        >(input)?))
-                    }
+                    Some(_) => literal.push(EntityValueElem::CharSlice(expect_string::<
+                        DoubleQuotedEntityValueCharacters,
+                        DoubleQuotedEntityValueCharacters,
+                    >(input)?)),
                     None => return Err(format!("Unclosed AttValue")),
                 }
             },
@@ -342,9 +330,7 @@ pub struct SystemLiteral<'src> {
 impl<'src> XmlElement<'src> for SystemLiteral<'src> {
     fn parse(input: &mut &'src str) -> Result<Self, String> {
         let quote = QuoteKind::parse(input)?;
-        let next_quote_pos = input
-            .find(quote.to_char())
-            .ok_or_else(|| format!("Unclosed literal"))?;
+        let next_quote_pos = input.find(quote.to_char()).ok_or_else(|| format!("Unclosed literal"))?;
         let (literal, rest) = input.split_at(next_quote_pos);
         // fixme: check literal is legal characters only
         *input = &rest[1..];
@@ -375,6 +361,27 @@ impl<'src> XmlElement<'src> for PubidLiteral<'src> {
     }
 }
 
+/// [14] - Character Data
+///
+/// https://www.w3.org/TR/xml/#NT-Comment
+pub struct CharData<'src>(&'src str);
+
+impl<'src> XmlElement<'src> for CharData<'src> {
+    fn parse(input: &mut &'src str) -> Result<Self, String> {
+        Ok(Self(expect_string::<CharDataCharSet, CharDataCharSet>(input)?))
+    }
+    fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
+        output.write_all(self.0.as_bytes())
+    }
+}
+
+impl<'src> std::ops::Deref for CharData<'src> {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
 /// [15] - Comment
 ///
 /// https://www.w3.org/TR/xml/#NT-Comment
@@ -392,21 +399,13 @@ impl<'src> XmlElement<'src> for Comment<'src> {
         skip_whitespaces(input);
         expect_bytes(input, Self::OPENING_TAG)?;
         // Fixme: "--" shall not appear in comments
-        let comment_end = input
-            .find(Self::CLOSING_TAG)
-            .ok_or_else(|| format!("Unclosed comment"))?;
+        let comment_end = input.find(Self::CLOSING_TAG).ok_or_else(|| format!("Unclosed comment"))?;
         let (comment, rest) = input.split_at(comment_end);
         *input = &rest[Self::CLOSING_TAG.len()..];
         Ok(Self { comment })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
-        write!(
-            output,
-            "{}{}{}",
-            Self::OPENING_TAG,
-            self.comment,
-            Self::CLOSING_TAG
-        )
+        write!(output, "{}{}{}", Self::OPENING_TAG, self.comment, Self::CLOSING_TAG)
     }
 }
 
@@ -435,28 +434,17 @@ impl<'src> XmlElement<'src> for PI<'src> {
             None /* Got closing delimiter, no instruction */
         } else {
             skip_whitespaces(input);
-            let instruction_end = input
-                .find(Self::CLOSING_TAG)
-                .ok_or_else(|| format!("Unclosed PI"))?;
+            let instruction_end = input.find(Self::CLOSING_TAG).ok_or_else(|| format!("Unclosed PI"))?;
             let (instruction, rest) = input.split_at(instruction_end);
             *input = &rest[Self::CLOSING_TAG.len()..];
             Some(instruction)
         };
 
-        Ok(Self {
-            target,
-            instruction,
-        })
+        Ok(Self { target, instruction })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self.instruction {
-            None => write!(
-                output,
-                "{}{}{}",
-                Self::OPENING_TAG,
-                self.target,
-                Self::CLOSING_TAG
-            ),
+            None => write!(output, "{}{}{}", Self::OPENING_TAG, self.target, Self::CLOSING_TAG),
             Some(instruction) => write!(
                 output,
                 "{}{} {}{}",
@@ -466,6 +454,32 @@ impl<'src> XmlElement<'src> for PI<'src> {
                 Self::CLOSING_TAG
             ),
         }
+    }
+}
+
+/// [18] - C DATA Section
+pub struct CDSect<'src> {
+    data: &'src str,
+}
+
+impl<'src> CDSect<'src> {
+    const OPENING_TAG: &'static str = "<![CDATA[";
+    const CLOSING_TAG: &'static str = "]]>";
+}
+
+impl<'src> XmlElement<'src> for CDSect<'src> {
+    fn parse(input: &mut &'src str) -> Result<Self, String> {
+        expect_bytes(input, Self::OPENING_TAG)?;
+        /* The usage of find is required, as the data can be anything as per spec */
+        let end_pos = input
+            .find(Self::CLOSING_TAG)
+            .ok_or_else(|| format!("Unclosed CDATA section"))?;
+        let (data, rest) = input.split_at(end_pos);
+        *input = &rest[Self::CLOSING_TAG.len()..];
+        Ok(Self { data })
+    }
+    fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
+        write!(output, "{}{}{}", Self::OPENING_TAG, self.data, Self::CLOSING_TAG)
     }
 }
 
@@ -537,7 +551,7 @@ impl<'src> XmlElement<'src> for Prolog<'src> {
 pub struct XmlDeclaration<'src> {
     pub version: VersionInfo,
     pub encoding: Option<EncodingDeclaration<'src>>,
-    pub standalone: Option<StandaloneDeclaration>,
+    pub standalone: Option<SDDecl>,
 }
 
 impl<'src> XmlDeclaration<'src> {
@@ -565,7 +579,7 @@ impl<'src> XmlElement<'src> for XmlDeclaration<'src> {
         let mut temp = *input;
         skip_whitespaces(&mut temp);
         let standalone = if temp.starts_with("standalone") {
-            Some(StandaloneDeclaration::parse(input)?)
+            Some(SDDecl::parse(input)?)
         } else {
             None
         };
@@ -612,29 +626,17 @@ impl<'src> XmlElement<'src> for VersionInfo {
         let quote = QuoteKind::parse(input)?;
 
         let major = expect_string::<DecimalDigits, DecimalDigits>(input)?;
-        let major = major
-            .parse()
-            .map_err(|e| format!("Failed to parse major version: {e}"))?;
+        let major = major.parse().map_err(|e| format!("Failed to parse major version: {e}"))?;
         expect_bytes(input, ".")?;
         let minor = expect_string::<DecimalDigits, DecimalDigits>(input)?;
-        let minor = minor
-            .parse()
-            .map_err(|e| format!("Failed to parse minor version: {e}"))?;
+        let minor = minor.parse().map_err(|e| format!("Failed to parse minor version: {e}"))?;
 
         expect_bytes(input, quote.to_str())?;
 
-        Ok(Self {
-            major,
-            minor,
-            quote,
-        })
+        Ok(Self { major, minor, quote })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
-        write!(
-            output,
-            " version = {}{}.{}{}",
-            self.quote, self.major, self.minor, self.quote
-        )
+        write!(output, " version = {}{}.{}{}", self.quote, self.major, self.minor, self.quote)
     }
 }
 
@@ -684,9 +686,7 @@ impl<'src> XmlElement<'src> for DoctypeDecl<'src> {
         skip_whitespaces(input);
         let name = Name::parse(input)?;
         skip_whitespaces(input);
-        let external_id = if input.starts_with(ExternalID::SYSTEM_TAG)
-            || input.starts_with(ExternalID::PUBLIC_TAG)
-        {
+        let external_id = if input.starts_with(ExternalID::SYSTEM_TAG) || input.starts_with(ExternalID::PUBLIC_TAG) {
             Some(ExternalID::parse(input)?)
         } else {
             None
@@ -767,9 +767,7 @@ impl<'src> XmlElement<'src> for IntSubset<'src> {
                     elements.push(IntSubsetElement::DeclSep(DeclSeparator::parse(input)?))
                 }
                 /* "<" are the start of a markup declaration */
-                Some(0x3C) => elements.push(IntSubsetElement::MarkupDecl(
-                    MarkupDeclaration::parse(input)?,
-                )),
+                Some(0x3C) => elements.push(IntSubsetElement::MarkupDecl(MarkupDeclaration::parse(input)?)),
                 /* "]" is the expected character after the int subset */
                 Some(0x5D) => break,
                 _ => return Err(format!("Expected markup decl or decl separator")),
@@ -832,12 +830,15 @@ impl<'src> XmlElement<'src> for MarkupDeclaration<'src> {
     }
 }
 
-pub struct StandaloneDeclaration {
+/// [32] - Standalone Declaration
+///
+/// https://www.w3.org/TR/xml/#NT-SDDecl
+pub struct SDDecl {
     pub standalone: bool,
     pub quote: QuoteKind,
 }
 
-impl<'src> XmlElement<'src> for StandaloneDeclaration {
+impl<'src> XmlElement<'src> for SDDecl {
     fn parse(input: &mut &'src str) -> Result<Self, String> {
         expect_whitespaces(input)?;
         expect_bytes(input, "standalone")?;
@@ -860,11 +861,304 @@ impl<'src> XmlElement<'src> for StandaloneDeclaration {
             true => "yes",
             false => "no",
         };
-        write!(
-            output,
-            " standalone = {}{}{}",
-            self.quote, standalone, self.quote
-        )
+        write!(output, " standalone = {}{}{}", self.quote, standalone, self.quote)
+    }
+}
+
+/// [39] - Element
+///
+/// https://www.w3.org/TR/xml/#NT-element
+pub enum Element<'src> {
+    EmptyElemTag(EmptyElemTag<'src>),
+    Element {
+        s_tag: STag<'src>,
+        content: Content<'src>,
+        e_tag: ETag<'src>,
+    },
+}
+
+impl<'src> Element<'src> {
+    const OPENING_TAG: &'static str = "<";
+
+    fn parse_start_or_empty(input: &mut &'src str) -> Result<Result<STag<'src>, EmptyElemTag<'src>>, String> {
+        /* Since start and empty tags are A LOT alike, parse anyway and make the decision later */
+        expect_bytes(input, STag::OPENING_TAG)?;
+        let name = Name::parse(input)?;
+
+        let mut attributes = Vec::new();
+        loop {
+            /* Check for terminator */
+            let mut temp = *input;
+            skip_whitespaces(&mut temp);
+            if temp.starts_with(STag::CLOSING_TAG) | temp.starts_with(EmptyElemTag::CLOSING_TAG) {
+                break;
+            }
+            /* No terminator, parse next attribute */
+            expect_whitespaces(input)?;
+            attributes.push(Attribute::parse(input)?);
+        }
+
+        skip_whitespaces(input);
+        if let Some(stripped) = input.strip_prefix(STag::CLOSING_TAG) {
+            *input = stripped;
+            Ok(Ok(STag { name, attributes }))
+        } else {
+            expect_bytes(input, EmptyElemTag::CLOSING_TAG)?;
+            Ok(Err(EmptyElemTag { name, attributes }))
+        }
+    }
+}
+
+impl<'src> XmlElement<'src> for Element<'src> {
+    fn parse(input: &mut &'src str) -> Result<Self, String> {
+        match Self::parse_start_or_empty(input)? {
+            Ok(s_tag) => {
+                let content = Content::parse(input)?;
+                let e_tag = ETag::parse(input)?;
+                Ok(Self::Element { s_tag, content, e_tag })
+            }
+            Err(empty_elem_tag) => Ok(Self::EmptyElemTag(empty_elem_tag)),
+        }
+    }
+    fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
+        match self {
+            Self::EmptyElemTag(empty) => empty.write(output),
+            Self::Element { s_tag, content, e_tag } => {
+                s_tag.write(output)?;
+                content.write(output)?;
+                e_tag.write(output)?;
+                Ok(())
+            }
+        }
+    }
+}
+
+/// [40] - Start Tag
+///
+/// https://www.w3.org/TR/xml/#NT-STag
+pub struct STag<'src> {
+    name: Name<'src>,
+    attributes: Vec<Attribute<'src>>,
+}
+
+impl<'src> STag<'src> {
+    const OPENING_TAG: &'static str = "<";
+    const CLOSING_TAG: &'static str = ">";
+}
+
+impl<'src> XmlElement<'src> for STag<'src> {
+    fn parse(input: &mut &'src str) -> Result<Self, String> {
+        expect_bytes(input, Self::OPENING_TAG)?;
+        let name = Name::parse(input)?;
+
+        let mut attributes = Vec::new();
+        loop {
+            /* Check for terminator */
+            let mut temp = *input;
+            skip_whitespaces(&mut temp);
+            if temp.starts_with(Self::CLOSING_TAG) {
+                break;
+            }
+            /* No terminator, parse next attribute */
+            expect_whitespaces(input)?;
+            attributes.push(Attribute::parse(input)?);
+        }
+
+        skip_whitespaces(input);
+        expect_bytes(input, Self::CLOSING_TAG)?;
+
+        Ok(Self { name, attributes })
+    }
+    fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
+        write!(output, "{}{}", Self::OPENING_TAG, self.name)?;
+        for attribute in self.attributes.iter() {
+            output.write_all(" ".as_bytes())?;
+            attribute.write(output)?;
+        }
+        write!(output, " {}", Self::CLOSING_TAG)?;
+        Ok(())
+    }
+}
+
+/// [41] - Attribute
+///
+/// https://www.w3.org/TR/xml/#NT-Attribute
+pub struct Attribute<'src> {
+    name: Name<'src>,
+    value: AttValue<'src>,
+}
+
+impl<'src> XmlElement<'src> for Attribute<'src> {
+    fn parse(input: &mut &'src str) -> Result<Self, String> {
+        let name = Name::parse(input)?;
+        skip_whitespaces(input);
+        expect_bytes(input, "=")?;
+        skip_whitespaces(input);
+        let value = AttValue::parse(input)?;
+        Ok(Self { name, value })
+    }
+    fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
+        write!(output, "{} = ", self.name)?;
+        self.value.write(output)?;
+        Ok(())
+    }
+}
+
+/// [42] - End Tag
+///
+/// https://www.w3.org/TR/xml/#NT-ETag
+pub struct ETag<'src> {
+    name: Name<'src>,
+}
+
+impl<'src> ETag<'src> {
+    const OPENING_TAG: &'static str = "</";
+    const CLOSING_TAG: &'static str = ">";
+}
+
+impl<'src> XmlElement<'src> for ETag<'src> {
+    fn parse(input: &mut &'src str) -> Result<Self, String> {
+        expect_bytes(input, Self::OPENING_TAG)?;
+        let name = Name::parse(input)?;
+        skip_whitespaces(input);
+        expect_bytes(input, Self::CLOSING_TAG)?;
+
+        Ok(Self { name })
+    }
+    fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
+        write!(output, "{}{} {}", Self::OPENING_TAG, self.name, Self::CLOSING_TAG)
+    }
+}
+
+/// [43] - Content
+///
+/// https://www.w3.org/TR/xml/#NT-content
+pub struct Content<'src> {
+    first_chars: Option<CharData<'src>>,
+    content: Vec<(ContentElement<'src>, Option<CharData<'src>>)>,
+}
+
+impl<'src> XmlElement<'src> for Content<'src> {
+    fn parse(input: &mut &'src str) -> Result<Self, String> {
+        let first = if input.starts_with(ContentElement::OPENING_CHARS) {
+            None
+        } else {
+            Some(CharData::parse(input)?)
+        };
+
+        let mut content = Vec::new();
+        loop {
+            /* The ETag start indicates we are done here */
+            if input.starts_with(ETag::OPENING_TAG) {
+                break;
+            }
+            /* Otherwise, we have remaining content to parse! */
+            let element = if input.starts_with(CDSect::OPENING_TAG) {
+                ContentElement::CDSect(CDSect::parse(input)?)
+            } else if input.starts_with(PI::OPENING_TAG) {
+                ContentElement::PI(PI::parse(input)?)
+            } else if input.starts_with(Comment::OPENING_TAG) {
+                ContentElement::Comment(Comment::parse(input)?)
+            } else if input.starts_with(Element::OPENING_TAG) {
+                ContentElement::Element(Element::parse(input)?)
+            } else if input.starts_with(Reference::OPENING_TAG) {
+                ContentElement::Reference(Reference::parse(input)?)
+            } else {
+                return Err(format!("Unexpected char!"));
+            };
+
+            let chars = if input.starts_with(ContentElement::OPENING_CHARS) {
+                None
+            } else {
+                Some(CharData::parse(input)?)
+            };
+
+            content.push((element, chars));
+        }
+
+        Ok(Self {
+            first_chars: first,
+            content,
+        })
+    }
+    fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
+        if let Some(chars) = &self.first_chars {
+            output.write_all(chars.as_bytes())?;
+        }
+        for (element, chars) in self.content.iter() {
+            match element {
+                ContentElement::Element(elem) => elem.write(output)?,
+                ContentElement::Reference(reference) => reference.write(output)?,
+                ContentElement::CDSect(cd_sect) => cd_sect.write(output)?,
+                ContentElement::PI(pi) => pi.write(output)?,
+                ContentElement::Comment(comment) => comment.write(output)?,
+            }
+            if let Some(chars) = chars {
+                output.write_all(chars.as_bytes())?;
+            }
+        }
+        Ok(())
+    }
+}
+
+pub enum ContentElement<'src> {
+    Element(Element<'src>),
+    Reference(Reference<'src>),
+    CDSect(CDSect<'src>),
+    PI(PI<'src>),
+    Comment(Comment<'src>),
+}
+
+impl<'src> ContentElement<'src> {
+    /// List of all characters that are at the start of the content special elems.
+    /// While parsing a Content, if we do not encounter one of these, we are parsing char data.
+    const OPENING_CHARS: &'static [char] = &['<', '&'];
+}
+
+/// [44] - Empty Element Tag
+///
+/// https://www.w3.org/TR/xml/#NT-EmptyElemTag
+pub struct EmptyElemTag<'src> {
+    name: Name<'src>,
+    attributes: Vec<Attribute<'src>>,
+}
+
+impl<'src> EmptyElemTag<'src> {
+    const OPENING_TAG: &'static str = "<";
+    const CLOSING_TAG: &'static str = "/>";
+}
+
+impl<'src> XmlElement<'src> for EmptyElemTag<'src> {
+    fn parse(input: &mut &'src str) -> Result<Self, String> {
+        expect_bytes(input, Self::OPENING_TAG)?;
+        let name = Name::parse(input)?;
+
+        let mut attributes = Vec::new();
+        loop {
+            /* Check for terminator */
+            let mut temp = *input;
+            skip_whitespaces(&mut temp);
+            if temp.starts_with(Self::CLOSING_TAG) {
+                break;
+            }
+            /* No terminator, parse next attribute */
+            expect_whitespaces(input)?;
+            attributes.push(Attribute::parse(input)?);
+        }
+
+        skip_whitespaces(input);
+        expect_bytes(input, Self::CLOSING_TAG)?;
+
+        Ok(Self { name, attributes })
+    }
+    fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
+        write!(output, "{}{}", Self::OPENING_TAG, self.name)?;
+        for attribute in self.attributes.iter() {
+            output.write_all(" ".as_bytes())?;
+            attribute.write(output)?;
+        }
+        write!(output, " {}", Self::CLOSING_TAG)?;
+        Ok(())
     }
 }
 
@@ -1045,9 +1339,7 @@ impl<'src> XmlElement<'src> for ElementContentParticle<'src> {
             /* Since a content particle that is not a name is basically a children, use it and unpack */
             Ok(match ElementContentChildren::parse(input)? {
                 ElementContentChildren::Seq { seq, repetition } => Self::Seq { seq, repetition },
-                ElementContentChildren::Choice { choice, repetition } => {
-                    Self::Choice { choice, repetition }
-                }
+                ElementContentChildren::Choice { choice, repetition } => Self::Choice { choice, repetition },
             })
         } else {
             let name = Name::parse(input)?;
@@ -1439,10 +1731,7 @@ impl<'src> XmlElement<'src> for Enumeration<'src> {
 pub enum DefaultDecl<'src> {
     Required,
     Implied,
-    Value {
-        fixed: bool,
-        attribute_value: AttValue<'src>,
-    },
+    Value { fixed: bool, attribute_value: AttValue<'src> },
 }
 
 impl<'src> DefaultDecl<'src> {
@@ -1468,20 +1757,14 @@ impl<'src> XmlElement<'src> for DefaultDecl<'src> {
                 false
             };
             let attribute_value = AttValue::parse(input)?;
-            Ok(Self::Value {
-                fixed,
-                attribute_value,
-            })
+            Ok(Self::Value { fixed, attribute_value })
         }
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self {
             Self::Required => output.write_all(Self::REQUIRED_TAG.as_bytes()),
             Self::Implied => output.write_all(Self::IMPLIED_TAG.as_bytes()),
-            Self::Value {
-                fixed,
-                attribute_value,
-            } => {
+            Self::Value { fixed, attribute_value } => {
                 if *fixed {
                     write!(output, "{} ", Self::FIXED_TAG)?;
                 }
@@ -1508,13 +1791,11 @@ impl<'src> XmlElement<'src> for CharacterReference {
             Some(0x78) => {
                 *input = &input[1..]; /* Skip the 'x' char we just matched */
                 let nums = expect_string::<HexadecimalDigits, HexadecimalDigits>(input)?;
-                u64::from_str_radix(nums, 16)
-                    .map_err(|e| format!("Failed to parse character point: {e}"))?
+                u64::from_str_radix(nums, 16).map_err(|e| format!("Failed to parse character point: {e}"))?
             }
             _ => {
                 let nums = expect_string::<DecimalDigits, DecimalDigits>(input)?;
-                u64::from_str_radix(nums, 10)
-                    .map_err(|e| format!("Failed to parse character point: {e}"))?
+                u64::from_str_radix(nums, 10).map_err(|e| format!("Failed to parse character point: {e}"))?
             }
         };
         expect_bytes(input, Self::CLOSING_TAG)?;
@@ -1573,13 +1854,7 @@ impl<'src> XmlElement<'src> for EntityReference<'src> {
         Ok(Self(name))
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
-        write!(
-            output,
-            "{}{}{}",
-            Self::OPENING_TAG,
-            self.0,
-            Self::CLOSING_TAG
-        )
+        write!(output, "{}{}{}", Self::OPENING_TAG, self.0, Self::CLOSING_TAG)
     }
 }
 
@@ -1603,13 +1878,7 @@ impl<'src> XmlElement<'src> for PEReference<'src> {
         Ok(Self { name })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
-        write!(
-            output,
-            "{}{}{}",
-            Self::OPENING_TAG,
-            self.name,
-            Self::CLOSING_TAG
-        )
+        write!(output, "{}{}{}", Self::OPENING_TAG, self.name, Self::CLOSING_TAG)
     }
 }
 
@@ -1623,6 +1892,7 @@ pub enum EntityDecl<'src> {
 
 impl<'src> EntityDecl<'src> {
     const OPENING_TAG: &'static str = "<!ENTITY";
+    #[allow(unused)]
     const CLOSING_TAG: &'static str = ">";
 }
 
@@ -1809,11 +2079,7 @@ impl<'src> XmlElement<'src> for ExternalID<'src> {
             let system = SystemLiteral::parse(input)?;
             Ok(Self::Public { pubid, system })
         } else {
-            Err(format!(
-                "Expected {} or {}",
-                Self::SYSTEM_TAG,
-                Self::PUBLIC_TAG
-            ))
+            Err(format!("Expected {} or {}", Self::SYSTEM_TAG, Self::PUBLIC_TAG))
         }
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
@@ -1878,11 +2144,7 @@ impl<'src> XmlElement<'src> for EncodingDeclaration<'src> {
         Ok(Self { encoding, quote })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
-        write!(
-            output,
-            " encoding = {}{}{}",
-            self.quote, self.encoding, self.quote
-        )
+        write!(output, " encoding = {}{}{}", self.quote, self.encoding, self.quote)
     }
 }
 

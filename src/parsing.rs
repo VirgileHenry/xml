@@ -46,17 +46,8 @@ impl CharacterSet for XmlChar {
             0 => return None,
             1 => u32::from(bytes[0]) << 24,
             2 => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16),
-            3 => {
-                (u32::from(bytes[0]) << 24)
-                    | (u32::from(bytes[1]) << 16)
-                    | (u32::from(bytes[2]) << 8)
-            }
-            _ => {
-                (u32::from(bytes[0]) << 24)
-                    | (u32::from(bytes[1]) << 16)
-                    | (u32::from(bytes[2]) << 8)
-                    | u32::from(bytes[3])
-            }
+            3 => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16) | (u32::from(bytes[2]) << 8),
+            _ => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16) | (u32::from(bytes[2]) << 8) | u32::from(bytes[3]),
         };
         match word {
             0x09_000000..=0x09_FFFFFF => Some(1), /* Single point \t */
@@ -98,17 +89,8 @@ impl CharacterSet for NameChar {
             0 => return None,
             1 => u32::from(bytes[0]) << 24,
             2 => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16),
-            3 => {
-                (u32::from(bytes[0]) << 24)
-                    | (u32::from(bytes[1]) << 16)
-                    | (u32::from(bytes[2]) << 8)
-            }
-            _ => {
-                (u32::from(bytes[0]) << 24)
-                    | (u32::from(bytes[1]) << 16)
-                    | (u32::from(bytes[2]) << 8)
-                    | u32::from(bytes[3])
-            }
+            3 => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16) | (u32::from(bytes[2]) << 8),
+            _ => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16) | (u32::from(bytes[2]) << 8) | u32::from(bytes[3]),
         };
         match word {
             0x3A_000000..=0x3A_FFFFFF => Some(1), /* ":" */
@@ -151,17 +133,8 @@ impl CharacterSet for NameStartChar {
             0 => return None,
             1 => u32::from(bytes[0]) << 24,
             2 => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16),
-            3 => {
-                (u32::from(bytes[0]) << 24)
-                    | (u32::from(bytes[1]) << 16)
-                    | (u32::from(bytes[2]) << 8)
-            }
-            _ => {
-                (u32::from(bytes[0]) << 24)
-                    | (u32::from(bytes[1]) << 16)
-                    | (u32::from(bytes[2]) << 8)
-                    | u32::from(bytes[3])
-            }
+            3 => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16) | (u32::from(bytes[2]) << 8),
+            _ => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16) | (u32::from(bytes[2]) << 8) | u32::from(bytes[3]),
         };
         match word {
             0x3A_000000..=0x3A_FFFFFF => Some(1), /* ":" */
@@ -231,6 +204,18 @@ impl CharacterSet for ExtendedLatinAlphabet {
     }
 }
 
+pub struct CharDataCharSet;
+
+impl CharacterSet for CharDataCharSet {
+    fn match_first(input: &str) -> Option<usize> {
+        match input.char_indices().next()? {
+            (_, '<') => None,
+            (_, '&') => None,
+            (l, _) => Some(l),
+        }
+    }
+}
+
 pub struct SingleQuotedAttValueCharacters;
 
 impl CharacterSet for SingleQuotedAttValueCharacters {
@@ -292,12 +277,9 @@ impl CharacterSet for DoubleQuotedEntityValueCharacters {
 /// The rest of the string is from the `Rest` charset.
 ///
 /// This will only fail if the first encounterd character is not in the First char set.
-pub fn expect_string<'src, Start: CharacterSet, Rest: CharacterSet>(
-    input: &mut &'src str,
-) -> Result<&'src str, String> {
+pub fn expect_string<'src, Start: CharacterSet, Rest: CharacterSet>(input: &mut &'src str) -> Result<&'src str, String> {
     let start = *input;
-    let mut length =
-        Start::match_first(input).ok_or_else(|| format!("First char not from character set"))?;
+    let mut length = Start::match_first(input).ok_or_else(|| format!("First char not from character set"))?;
     while let Some(additional) = Rest::match_first(input) {
         length += additional;
     }
@@ -338,13 +320,9 @@ pub fn expect_whitespaces(input: &mut &str) -> Result<usize, String> {
 
 /// Expects a fixed byte sequence, or throws an error.
 pub fn expect_bytes(input: &mut &str, expected: &str) -> Result<(), String> {
-    *input = input.strip_prefix(expected).ok_or_else(|| {
-        format!(
-            "Expected {}, found {}",
-            expected,
-            &input[..expected.len().min(input.len())]
-        )
-    })?;
+    *input = input
+        .strip_prefix(expected)
+        .ok_or_else(|| format!("Expected {}, found {}", expected, &input[..expected.len().min(input.len())]))?;
     Ok(())
 }
 
