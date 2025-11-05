@@ -1,9 +1,11 @@
+mod error;
 mod parsing;
+
+use error::XmlParsingError;
+use parsing::*;
 use std::fmt::Write;
 
-use parsing::*;
-
-pub fn parse_xml<'src>(input: &'src str) -> Result<Document<'src>, String> {
+pub fn parse_xml<'src>(input: &'src str) -> Result<Document<'src>, XmlParsingError<'src>> {
     let mut input = input;
     Document::parse(&mut input)
 }
@@ -15,18 +17,22 @@ pub enum QuoteKind {
 }
 
 impl QuoteKind {
-    fn parse(input: &mut &str) -> Result<Self, String> {
-        match input.as_bytes().first() {
-            Some(0x22) => {
+    fn parse<'src>(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
+        match input.char_indices().next() {
+            Some((_, '"')) => {
                 *input = &input[1..];
                 Ok(QuoteKind::Double)
             }
-            Some(0x27) => {
+            Some((_, '\'')) => {
                 *input = &input[1..];
                 Ok(QuoteKind::Single)
             }
-            Some(other) => Err(format!("Unexpected char for quote: {}", char::from(*other))),
-            None => Err(format!("Unexpected char for quote: EOF")),
+            Some((l, _)) => {
+                let expected = &["\"", "'"];
+                Err(XmlParsingError::unexpected(expected, &input[..l]))},
+            None => {
+                let expected = &["\"", "'"];
+                Err(XmlParsingError::unexpected(expected, "EOF"))},
         }
     }
     fn to_char(self) -> char {
@@ -94,7 +100,7 @@ impl std::fmt::Display for RepetitionOperator {
 }
 
 trait XmlElement<'src>: Sized {
-    fn parse(input: &mut &'src str) -> Result<Self, String>;
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>>;
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()>;
 }
 
@@ -114,7 +120,7 @@ impl<'src> Document<'src> {
 }
 
 impl<'src> XmlElement<'src> for Document<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         let prolog = Prolog::parse(input)?;
         let element = ();
 
@@ -145,7 +151,7 @@ impl<'src> XmlElement<'src> for Document<'src> {
 pub struct Name<'src>(&'src str);
 
 impl<'src> XmlElement<'src> for Name<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         Ok(Self(expect_string::<NameStartChar, NameChar>(input)?))
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
@@ -172,7 +178,7 @@ impl<'src> std::fmt::Display for Name<'src> {
 pub struct NmToken<'src>(&'src str);
 
 impl<'src> XmlElement<'src> for NmToken<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         Ok(Self(expect_string::<NameChar, NameChar>(input)?))
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
@@ -202,7 +208,7 @@ pub struct EntityValue<'src> {
 }
 
 impl<'src> XmlElement<'src> for EntityValue<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         let quote = QuoteKind::parse(input)?;
 
         let mut literal = Vec::new();
@@ -213,12 +219,13 @@ impl<'src> XmlElement<'src> for EntityValue<'src> {
                     Some('&') => literal.push(EntityValueElem::Reference(Reference::parse(input)?)),
                     Some('%') => literal.push(EntityValueElem::PEReference(PEReference::parse(input)?)),
                     Some('\'') => break,
-                    Some('<') => return Err(format!("Unexpected char < in AttValue")),
+                    Some('<') => {
+                        return Err(XmlParsingError::unexpected("[^<%&]", "<"))},
                     Some(_) => literal.push(EntityValueElem::CharSlice(expect_string::<
                         SingleQuotedEntityValueCharacters,
                         SingleQuotedEntityValueCharacters,
                     >(input)?)),
-                    None => return Err(format!("Unclosed AttValue")),
+                    None => return Err(XmlParsingError::unclosed::<Self>("'")),
                 }
             },
             QuoteKind::Double => loop {
@@ -226,12 +233,12 @@ impl<'src> XmlElement<'src> for EntityValue<'src> {
                     Some('&') => literal.push(EntityValueElem::Reference(Reference::parse(input)?)),
                     Some('%') => literal.push(EntityValueElem::PEReference(PEReference::parse(input)?)),
                     Some('"') => break,
-                    Some('<') => return Err(format!("Unexpected char < in AttValue")),
+                    Some('<') => return Err(XmlParsingError::unexpected("[^<%&]", "<")),
                     Some(_) => literal.push(EntityValueElem::CharSlice(expect_string::<
                         DoubleQuotedEntityValueCharacters,
                         DoubleQuotedEntityValueCharacters,
                     >(input)?)),
-                    None => return Err(format!("Unclosed AttValue")),
+                    None => return Err(XmlParsingError::unclosed::<Self>("\"")),
                 }
             },
         }
@@ -267,7 +274,7 @@ pub struct AttValue<'src> {
 }
 
 impl<'src> XmlElement<'src> for AttValue<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         let quote = QuoteKind::parse(input)?;
 
         let mut literal = Vec::new();
@@ -277,24 +284,24 @@ impl<'src> XmlElement<'src> for AttValue<'src> {
                 match input.chars().next() {
                     Some('&') => literal.push(AttValueElem::Reference(Reference::parse(input)?)),
                     Some('\'') => break,
-                    Some('<') => return Err(format!("Unexpected char < in AttValue")),
+                    Some('<') => return Err(XmlParsingError::unexpected("[^<&]", "<")),
                     Some(_) => literal.push(AttValueElem::CharSlice(expect_string::<
                         SingleQuotedAttValueCharacters,
                         SingleQuotedAttValueCharacters,
                     >(input)?)),
-                    None => return Err(format!("Unclosed AttValue")),
+                    None => return Err(XmlParsingError::unclosed::<Self>("'")),
                 }
             },
             QuoteKind::Double => loop {
                 match input.chars().next() {
                     Some('&') => literal.push(AttValueElem::Reference(Reference::parse(input)?)),
                     Some('"') => break,
-                    Some('<') => return Err(format!("Unexpected char < in AttValue")),
+                    Some('<') => return Err(XmlParsingError::unexpected("[^<&]", "<")),
                     Some(_) => literal.push(AttValueElem::CharSlice(expect_string::<
                         DoubleQuotedAttValueCharacters,
                         DoubleQuotedAttValueCharacters,
                     >(input)?)),
-                    None => return Err(format!("Unclosed AttValue")),
+                    None => return Err(XmlParsingError::unclosed::<Self>("\"")),
                 }
             },
         }
@@ -328,9 +335,9 @@ pub struct SystemLiteral<'src> {
 }
 
 impl<'src> XmlElement<'src> for SystemLiteral<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         let quote = QuoteKind::parse(input)?;
-        let next_quote_pos = input.find(quote.to_char()).ok_or_else(|| format!("Unclosed literal"))?;
+        let next_quote_pos = input.find(quote.to_char()).ok_or_else(|| XmlParsingError::unclosed::<Self>(quote.to_str()))?;
         let (literal, rest) = input.split_at(next_quote_pos);
         // fixme: check literal is legal characters only
         *input = &rest[1..];
@@ -350,7 +357,7 @@ pub struct PubidLiteral<'src> {
 }
 
 impl<'src> XmlElement<'src> for PubidLiteral<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         let quote = QuoteKind::parse(input)?;
         let literal = expect_string::<PubidChar, PubidChar>(input)?;
         expect_bytes(input, quote.to_str())?;
@@ -367,7 +374,7 @@ impl<'src> XmlElement<'src> for PubidLiteral<'src> {
 pub struct CharData<'src>(&'src str);
 
 impl<'src> XmlElement<'src> for CharData<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         Ok(Self(expect_string::<CharDataCharSet, CharDataCharSet>(input)?))
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
@@ -395,11 +402,11 @@ impl<'src> Comment<'src> {
 }
 
 impl<'src> XmlElement<'src> for Comment<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         skip_whitespaces(input);
         expect_bytes(input, Self::OPENING_TAG)?;
         // Fixme: "--" shall not appear in comments
-        let comment_end = input.find(Self::CLOSING_TAG).ok_or_else(|| format!("Unclosed comment"))?;
+        let comment_end = input.find(Self::CLOSING_TAG).ok_or_else(|| XmlParsingError::unclosed::<Self>(Self::CLOSING_TAG))?;
         let (comment, rest) = input.split_at(comment_end);
         *input = &rest[Self::CLOSING_TAG.len()..];
         Ok(Self { comment })
@@ -423,18 +430,18 @@ impl<'src> PI<'src> {
 }
 
 impl<'src> XmlElement<'src> for PI<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         let target = Name::parse(input)?;
         if is_litteral_xml(target.0) {
-            return Err(format!("Target can't be \"XML\""));
+            return Err(XmlParsingError::invalid_target(target.0));
         }
 
         let instruction = if input.starts_with(Self::CLOSING_TAG) {
             None /* Got closing delimiter, no instruction */
         } else {
             skip_whitespaces(input);
-            let instruction_end = input.find(Self::CLOSING_TAG).ok_or_else(|| format!("Unclosed PI"))?;
+            let instruction_end = input.find(Self::CLOSING_TAG).ok_or_else(|| XmlParsingError::unclosed::<Self>(Self::CLOSING_TAG))?;
             let (instruction, rest) = input.split_at(instruction_end);
             *input = &rest[Self::CLOSING_TAG.len()..];
             Some(instruction)
@@ -468,12 +475,12 @@ impl<'src> CDSect<'src> {
 }
 
 impl<'src> XmlElement<'src> for CDSect<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         /* The usage of find is required, as the data can be anything as per spec */
         let end_pos = input
             .find(Self::CLOSING_TAG)
-            .ok_or_else(|| format!("Unclosed CDATA section"))?;
+            .ok_or_else(|| XmlParsingError::unclosed::<Self>(Self::CLOSING_TAG))?;
         let (data, rest) = input.split_at(end_pos);
         *input = &rest[Self::CLOSING_TAG.len()..];
         Ok(Self { data })
@@ -493,7 +500,7 @@ pub struct Prolog<'src> {
 }
 
 impl<'src> XmlElement<'src> for Prolog<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         let declaration = if input.starts_with(XmlDeclaration::OPENING_TAG) {
             Some(XmlDeclaration::parse(input)?)
         } else {
@@ -560,7 +567,7 @@ impl<'src> XmlDeclaration<'src> {
 }
 
 impl<'src> XmlElement<'src> for XmlDeclaration<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         skip_whitespaces(input);
         expect_bytes(input, Self::OPENING_TAG)?;
         /* Parse the version */
@@ -616,7 +623,7 @@ pub struct VersionInfo {
 }
 
 impl<'src> XmlElement<'src> for VersionInfo {
-    fn parse(input: &mut &str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_whitespaces(input)?;
         expect_bytes(input, "version")?;
         skip_whitespaces(input);
@@ -626,10 +633,10 @@ impl<'src> XmlElement<'src> for VersionInfo {
         let quote = QuoteKind::parse(input)?;
 
         let major = expect_string::<DecimalDigits, DecimalDigits>(input)?;
-        let major = major.parse().map_err(|e| format!("Failed to parse major version: {e}"))?;
+        let major = major.parse().map_err(|_| XmlParsingError::unexpected("uint", major))?;
         expect_bytes(input, ".")?;
         let minor = expect_string::<DecimalDigits, DecimalDigits>(input)?;
-        let minor = minor.parse().map_err(|e| format!("Failed to parse minor version: {e}"))?;
+        let minor = minor.parse().map_err(|_| XmlParsingError::unexpected("uint", minor))?;
 
         expect_bytes(input, quote.to_str())?;
 
@@ -649,13 +656,18 @@ pub enum Miscellaneous<'src> {
 }
 
 impl<'src> XmlElement<'src> for Miscellaneous<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         if input.starts_with(Comment::OPENING_TAG) {
             Ok(Miscellaneous::Comment(Comment::parse(input)?))
         } else if input.starts_with(PI::OPENING_TAG) {
             Ok(Miscellaneous::Pi(PI::parse(input)?))
         } else {
-            Err(format!("Not a comment or PI"))
+            let expected_char_count = Comment::OPENING_TAG.len().max(PI::OPENING_TAG.len());
+            let obtained = match input.char_indices().skip(expected_char_count).next() {
+                Some((i, _)) => &input[..i],
+                None => input,
+            };
+            Err(XmlParsingError::unexpected("<!-- or <?", obtained))
         }
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
@@ -681,7 +693,7 @@ impl<'src> DoctypeDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for DoctypeDecl<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         skip_whitespaces(input);
         let name = Name::parse(input)?;
@@ -733,7 +745,7 @@ pub enum DeclSeparator<'src> {
 }
 
 impl<'src> XmlElement<'src> for DeclSeparator<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         if input.starts_with(PEReference::OPENING_TAG) {
             Ok(Self::PEReference(PEReference::parse(input)?))
         } else {
@@ -757,20 +769,21 @@ pub struct IntSubset<'src> {
 }
 
 impl<'src> XmlElement<'src> for IntSubset<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         let mut elements = Vec::new();
 
         loop {
-            match input.as_bytes().first() {
+            match input.char_indices().next() {
                 /* Spaces or "%" make a decl separator */
-                Some(0x20) | Some(0x09) | Some(0x0D) | Some(0x0A) | Some(0x25) => {
+                Some((_, ' ')) | Some((_, '\t')) | Some((_, '\r')) | Some((_, '\n')) | Some((_, '%')) => {
                     elements.push(IntSubsetElement::DeclSep(DeclSeparator::parse(input)?))
                 }
                 /* "<" are the start of a markup declaration */
-                Some(0x3C) => elements.push(IntSubsetElement::MarkupDecl(MarkupDeclaration::parse(input)?)),
+                Some((_, '<')) => elements.push(IntSubsetElement::MarkupDecl(MarkupDeclaration::parse(input)?)),
                 /* "]" is the expected character after the int subset */
-                Some(0x5D) => break,
-                _ => return Err(format!("Expected markup decl or decl separator")),
+                Some((_, ']')) => break,
+                Some((l, _)) => return Err(XmlParsingError::unexpected("space or ]", &input[..l])),
+                None => return Err(XmlParsingError::unexpected("space or ]", "EOF")),
             }
         }
 
@@ -805,7 +818,7 @@ pub enum MarkupDeclaration<'src> {
 }
 
 impl<'src> XmlElement<'src> for MarkupDeclaration<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         if input.starts_with(ElementDecl::OPENING_TAG) {
             Ok(Self::ElementDecl(ElementDecl::parse(input)?))
         } else if input.starts_with(AttListDecl::OPENING_TAG) {
@@ -815,7 +828,13 @@ impl<'src> XmlElement<'src> for MarkupDeclaration<'src> {
         } else if input.starts_with(Comment::OPENING_TAG) {
             Ok(Self::Comment(Comment::parse(input)?))
         } else {
-            Err(format!("Expected markup declaration"))
+            let expected = &[
+                ElementDecl::OPENING_TAG,
+                AttListDecl::OPENING_TAG,
+                PI::OPENING_TAG,
+                Comment::OPENING_TAG,
+            ];
+            Err(XmlParsingError::unexpected(expected, input))
         }
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
@@ -839,7 +858,7 @@ pub struct SDDecl {
 }
 
 impl<'src> XmlElement<'src> for SDDecl {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_whitespaces(input)?;
         expect_bytes(input, "standalone")?;
         let quote = QuoteKind::parse(input)?;
@@ -880,7 +899,7 @@ pub enum Element<'src> {
 impl<'src> Element<'src> {
     const OPENING_TAG: &'static str = "<";
 
-    fn parse_start_or_empty(input: &mut &'src str) -> Result<Result<STag<'src>, EmptyElemTag<'src>>, String> {
+    fn parse_start_or_empty(input: &mut &'src str) -> Result<Result<STag<'src>, EmptyElemTag<'src>>, XmlParsingError<'src>> {
         /* Since start and empty tags are A LOT alike, parse anyway and make the decision later */
         expect_bytes(input, STag::OPENING_TAG)?;
         let name = Name::parse(input)?;
@@ -910,7 +929,7 @@ impl<'src> Element<'src> {
 }
 
 impl<'src> XmlElement<'src> for Element<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         match Self::parse_start_or_empty(input)? {
             Ok(s_tag) => {
                 let content = Content::parse(input)?;
@@ -947,7 +966,7 @@ impl<'src> STag<'src> {
 }
 
 impl<'src> XmlElement<'src> for STag<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         let name = Name::parse(input)?;
 
@@ -989,7 +1008,7 @@ pub struct Attribute<'src> {
 }
 
 impl<'src> XmlElement<'src> for Attribute<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         let name = Name::parse(input)?;
         skip_whitespaces(input);
         expect_bytes(input, "=")?;
@@ -1017,7 +1036,7 @@ impl<'src> ETag<'src> {
 }
 
 impl<'src> XmlElement<'src> for ETag<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         let name = Name::parse(input)?;
         skip_whitespaces(input);
@@ -1039,7 +1058,7 @@ pub struct Content<'src> {
 }
 
 impl<'src> XmlElement<'src> for Content<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         let first = if input.starts_with(ContentElement::OPENING_CHARS) {
             None
         } else {
@@ -1129,7 +1148,7 @@ impl<'src> EmptyElemTag<'src> {
 }
 
 impl<'src> XmlElement<'src> for EmptyElemTag<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         let name = Name::parse(input)?;
 
@@ -1176,7 +1195,7 @@ impl<'src> ElementDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for ElementDecl<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         expect_whitespaces(input)?;
         let name = Name::parse(input)?;
@@ -1204,7 +1223,7 @@ pub enum ContentSpec<'src> {
 }
 
 impl<'src> XmlElement<'src> for ContentSpec<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         if let Some(prefixed) = input.strip_prefix("EMPTY") {
             *input = prefixed;
             Ok(Self::Empty)
@@ -1241,7 +1260,7 @@ pub enum ElementContentChildren<'src> {
 }
 
 impl<'src> XmlElement<'src> for ElementContentChildren<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, "(")?;
         skip_whitespaces(input);
         /* Fixme: will be moved into a vec anyway ? maybe something to gain here */
@@ -1334,7 +1353,7 @@ pub enum ElementContentParticle<'src> {
 }
 
 impl<'src> XmlElement<'src> for ElementContentParticle<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         if input.starts_with('(') {
             /* Since a content particle that is not a name is basically a children, use it and unpack */
             Ok(match ElementContentChildren::parse(input)? {
@@ -1423,7 +1442,7 @@ impl<'src> AttListDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for AttListDecl<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         expect_whitespaces(input)?;
         let name = Name::parse(input)?;
@@ -1466,7 +1485,7 @@ pub struct AttDef<'src> {
 }
 
 impl<'src> XmlElement<'src> for AttDef<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_whitespaces(input)?;
         let name = Name::parse(input)?;
         expect_whitespaces(input)?;
@@ -1500,9 +1519,9 @@ pub enum AttributeType<'src> {
 }
 
 impl<'src> XmlElement<'src> for AttributeType<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
-        if input.starts_with(StringType::TAG) {
-            Ok(Self::StringType(StringType::parse(input)?))
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
+        if input.starts_with(XmlParsingError<'src>Type::TAG) {
+            Ok(Self::XmlParsingError<'src>Type(XmlParsingError<'src>Type::parse(input)?))
         } else if input.starts_with(TokenizedType::ID_TAG)
             || input.starts_with(TokenizedType::IDREF_TAG)
             || input.starts_with(TokenizedType::IDREFS_TAG)
@@ -1525,7 +1544,7 @@ impl<'src> XmlElement<'src> for AttributeType<'src> {
     }
 }
 
-/// [55] - String Type
+/// [55] - XmlParsingError<'src> Type
 pub struct StringType;
 
 impl StringType {
@@ -1533,7 +1552,7 @@ impl StringType {
 }
 
 impl<'src> XmlElement<'src> for StringType {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::TAG)?;
         Ok(Self)
     }
@@ -1566,7 +1585,7 @@ impl TokenizedType {
 }
 
 impl<'src> XmlElement<'src> for TokenizedType {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         if let Some(stripped) = input.strip_prefix(Self::ID_TAG) {
             *input = stripped;
             Ok(Self::Id)
@@ -1614,7 +1633,7 @@ pub enum EnumeratedType<'src> {
 }
 
 impl<'src> XmlElement<'src> for EnumeratedType<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         if input.starts_with(NotationType::OPENING_TAG) {
             Ok(Self::Notation(NotationType::parse(input)?))
         } else {
@@ -1642,7 +1661,7 @@ impl<'src> NotationType<'src> {
 }
 
 impl<'src> XmlElement<'src> for NotationType<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         expect_whitespaces(input)?;
         expect_bytes(input, "(")?;
@@ -1689,7 +1708,7 @@ pub struct Enumeration<'src> {
 }
 
 impl<'src> XmlElement<'src> for Enumeration<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, "(")?;
         skip_whitespaces(input);
 
@@ -1741,7 +1760,7 @@ impl<'src> DefaultDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for DefaultDecl<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         if let Some(stripped) = input.strip_prefix(Self::REQUIRED_TAG) {
             *input = stripped;
             Ok(Self::Required)
@@ -1785,7 +1804,7 @@ impl<'src> CharacterReference {
 }
 
 impl<'src> XmlElement<'src> for CharacterReference {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         let character_point = match input.as_bytes().first() {
             Some(0x78) => {
@@ -1819,7 +1838,7 @@ impl<'src> Reference<'src> {
 }
 
 impl<'src> XmlElement<'src> for Reference<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         if input.starts_with(CharacterReference::OPENING_TAG) {
             Ok(Self::Character(CharacterReference::parse(input)?))
         } else if input.starts_with(EntityReference::OPENING_TAG) {
@@ -1847,7 +1866,7 @@ impl<'src> EntityReference<'src> {
 }
 
 impl<'src> XmlElement<'src> for EntityReference<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         let name = Name::parse(input)?;
         expect_bytes(input, Self::CLOSING_TAG)?;
@@ -1871,7 +1890,7 @@ impl<'src> PEReference<'src> {
 }
 
 impl<'src> XmlElement<'src> for PEReference<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         let name = Name::parse(input)?;
         expect_bytes(input, Self::CLOSING_TAG)?;
@@ -1897,7 +1916,7 @@ impl<'src> EntityDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for EntityDecl<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         /* Look for the % char to dissociate the type */
         let mut temp = *input;
         expect_bytes(&mut temp, Self::OPENING_TAG)?;
@@ -1930,7 +1949,7 @@ impl<'src> GEDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for GEDecl<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         expect_whitespaces(input)?;
         let name = Name::parse(input)?;
@@ -1962,7 +1981,7 @@ impl<'src> PEDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for PEDecl<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         expect_whitespaces(input)?;
         expect_bytes(input, "%")?;
@@ -1994,7 +2013,7 @@ pub enum EntityDef<'src> {
 }
 
 impl<'src> XmlElement<'src> for EntityDef<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         if input.starts_with(ExternalID::SYSTEM_TAG) || input.starts_with(ExternalID::PUBLIC_TAG) {
             let id = ExternalID::parse(input)?;
             let mut temp = *input;
@@ -2032,7 +2051,7 @@ pub enum PEDef<'src> {
 }
 
 impl<'src> XmlElement<'src> for PEDef<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         if input.starts_with(ExternalID::SYSTEM_TAG) || input.starts_with(ExternalID::PUBLIC_TAG) {
             Ok(Self::ExternalID(ExternalID::parse(input)?))
         } else {
@@ -2065,7 +2084,7 @@ impl<'src> ExternalID<'src> {
     const PUBLIC_TAG: &'static str = "PUBLIC";
 }
 impl<'src> XmlElement<'src> for ExternalID<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         if let Some(stripped) = input.strip_prefix(Self::SYSTEM_TAG) {
             *input = stripped;
             skip_whitespaces(input);
@@ -2111,7 +2130,7 @@ impl<'src> NDataDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for NDataDecl<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_whitespaces(input)?;
         expect_bytes(input, Self::TAG)?;
         expect_whitespaces(input)?;
@@ -2132,7 +2151,7 @@ pub struct EncodingDeclaration<'src> {
 }
 
 impl<'src> XmlElement<'src> for EncodingDeclaration<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_whitespaces(input)?;
         expect_bytes(input, "encoding")?;
         skip_whitespaces(input);
@@ -2168,7 +2187,7 @@ impl<'src> NotationDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for NotationDecl<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         expect_whitespaces(input)?;
         let name = Name::parse(input)?;
@@ -2214,7 +2233,7 @@ impl<'src> PublicID<'src> {
 }
 
 impl<'src> XmlElement<'src> for PublicID<'src> {
-    fn parse(input: &mut &'src str) -> Result<Self, String> {
+    fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::TAG)?;
         expect_whitespaces(input)?;
         let literal = PubidLiteral::parse(input)?;

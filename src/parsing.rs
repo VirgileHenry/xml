@@ -1,3 +1,5 @@
+use crate::error::XmlParsingError;
+
 /// The character set trait allows to define characters set,
 /// and create functions to expect chars and strings that are only chars from within the set.
 /// This is useful to parse litterals that can only be from given sets.
@@ -277,9 +279,14 @@ impl CharacterSet for DoubleQuotedEntityValueCharacters {
 /// The rest of the string is from the `Rest` charset.
 ///
 /// This will only fail if the first encounterd character is not in the First char set.
-pub fn expect_string<'src, Start: CharacterSet, Rest: CharacterSet>(input: &mut &'src str) -> Result<&'src str, String> {
+pub fn expect_string<'src, Start: CharacterSet, Rest: CharacterSet>(
+    input: &mut &'src str,
+) -> Result<&'src str, XmlParsingError<'src>> {
     let start = *input;
-    let mut length = Start::match_first(input).ok_or_else(|| format!("First char not from character set"))?;
+    let mut length = Start::match_first(input).ok_or_else(|| {
+        let expected = &[std::any::type_name::<Start>()];
+        XmlParsingError::unexpected(expected, input)
+    })?;
     *input = &input[length..];
     while let Some(additional) = Rest::match_first(input) {
         length += additional;
@@ -313,18 +320,23 @@ pub fn skip_whitespaces(input: &mut &str) -> usize {
 /// Skip the whitespaces, expecting to find at least one.
 ///
 /// If no whitespaces are encountered, will return an error.
-pub fn expect_whitespaces(input: &mut &str) -> Result<usize, String> {
+pub fn expect_whitespaces<'src>(input: &mut &'src str) -> Result<usize, XmlParsingError<'src>> {
     match skip_whitespaces(input) {
-        0 => Err(format!("Expected whitespaces")),
+        0 => Err(XmlParsingError::unexpected(&[std::any::type_name::<Spaces>()], input)),
         more => Ok(more),
     }
 }
 
 /// Expects a fixed byte sequence, or throws an error.
-pub fn expect_bytes(input: &mut &str, expected: &str) -> Result<(), String> {
-    *input = input
-        .strip_prefix(expected)
-        .ok_or_else(|| format!("Expected {}, found {}", expected, &input[..expected.len().min(input.len())]))?;
+pub fn expect_bytes<'src>(input: &mut &'src str, expected: &'static str) -> Result<(), XmlParsingError<'src>> {
+    *input = input.strip_prefix(expected).ok_or_else(|| {
+        let expected_char_count = expected.chars().count();
+        let obtained = match input.char_indices().skip(expected_char_count).next() {
+            Some((i, _)) => &input[..i],
+            None => input,
+        };
+        XmlParsingError::unexpected(&[expected], obtained)
+    })?;
     Ok(())
 }
 
