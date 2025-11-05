@@ -280,8 +280,10 @@ impl CharacterSet for DoubleQuotedEntityValueCharacters {
 pub fn expect_string<'src, Start: CharacterSet, Rest: CharacterSet>(input: &mut &'src str) -> Result<&'src str, String> {
     let start = *input;
     let mut length = Start::match_first(input).ok_or_else(|| format!("First char not from character set"))?;
+    *input = &input[length..];
     while let Some(additional) = Rest::match_first(input) {
         length += additional;
+        *input = &input[additional..];
     }
     Ok(&start[..length])
 }
