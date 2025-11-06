@@ -213,6 +213,7 @@ impl CharacterSet for CharDataCharSet {
         match input.char_indices().next()? {
             (_, '<') => None,
             (_, '&') => None,
+            (0, _) => None,
             (l, _) => Some(l),
         }
     }
@@ -226,6 +227,7 @@ impl CharacterSet for SingleQuotedAttValueCharacters {
             (_, '<') => None,
             (_, '&') => None,
             (_, '\'') => None,
+            (0, _) => None,
             (l, _) => Some(l),
         }
     }
@@ -239,6 +241,7 @@ impl CharacterSet for DoubleQuotedAttValueCharacters {
             (_, '<') => None,
             (_, '&') => None,
             (_, '"') => None,
+            (0, _) => None,
             (l, _) => Some(l),
         }
     }
@@ -253,6 +256,7 @@ impl CharacterSet for SingleQuotedEntityValueCharacters {
             (_, '&') => None,
             (_, '%') => None,
             (_, '\'') => None,
+            (0, _) => None,
             (l, _) => Some(l),
         }
     }
@@ -267,6 +271,7 @@ impl CharacterSet for DoubleQuotedEntityValueCharacters {
             (_, '&') => None,
             (_, '%') => None,
             (_, '"') => None,
+            (0, _) => None,
             (l, _) => Some(l),
         }
     }
