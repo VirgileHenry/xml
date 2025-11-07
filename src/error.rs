@@ -39,6 +39,9 @@ impl<'src> XmlParsingError<'src> {
     }
 
     pub fn add_ctx<T>(self) -> Self {
+        // Fixme: When the try trait is implemented, we shall add a custom Try for our error.
+        // https://doc.rust-lang.org/std/ops/trait.Try.html
+        // This will avoid the check on err for the map_err and try, and may cut a lot of checks when parsing.
         let mut mut_self = self;
         mut_self.parsing_stack.push(std::any::type_name::<T>());
         mut_self

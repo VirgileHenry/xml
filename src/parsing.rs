@@ -210,11 +210,10 @@ pub struct CharDataCharSet;
 
 impl CharacterSet for CharDataCharSet {
     fn match_first(input: &str) -> Option<usize> {
-        match input.char_indices().next()? {
-            (_, '<') => None,
-            (_, '&') => None,
-            (0, _) => None,
-            (l, _) => Some(l),
+        match input.chars().next()? {
+            '<' => None,
+            '&' => None,
+            c => Some(c.len_utf8()),
         }
     }
 }
@@ -223,12 +222,11 @@ pub struct SingleQuotedAttValueCharacters;
 
 impl CharacterSet for SingleQuotedAttValueCharacters {
     fn match_first(input: &str) -> Option<usize> {
-        match input.char_indices().next()? {
-            (_, '<') => None,
-            (_, '&') => None,
-            (_, '\'') => None,
-            (0, _) => None,
-            (l, _) => Some(l),
+        match input.chars().next()? {
+            '<' => None,
+            '&' => None,
+            '\'' => None,
+            c => Some(c.len_utf8()),
         }
     }
 }
@@ -237,12 +235,11 @@ pub struct DoubleQuotedAttValueCharacters;
 
 impl CharacterSet for DoubleQuotedAttValueCharacters {
     fn match_first(input: &str) -> Option<usize> {
-        match input.char_indices().next()? {
-            (_, '<') => None,
-            (_, '&') => None,
-            (_, '"') => None,
-            (0, _) => None,
-            (l, _) => Some(l),
+        match input.chars().next()? {
+            '<' => None,
+            '&' => None,
+            '"' => None,
+            c => Some(c.len_utf8()),
         }
     }
 }
@@ -251,13 +248,12 @@ pub struct SingleQuotedEntityValueCharacters;
 
 impl CharacterSet for SingleQuotedEntityValueCharacters {
     fn match_first(input: &str) -> Option<usize> {
-        match input.char_indices().next()? {
-            (_, '<') => None,
-            (_, '&') => None,
-            (_, '%') => None,
-            (_, '\'') => None,
-            (0, _) => None,
-            (l, _) => Some(l),
+        match input.chars().next()? {
+            '<' => None,
+            '&' => None,
+            '%' => None,
+            '\'' => None,
+            c => Some(c.len_utf8()),
         }
     }
 }
@@ -266,13 +262,12 @@ pub struct DoubleQuotedEntityValueCharacters;
 
 impl CharacterSet for DoubleQuotedEntityValueCharacters {
     fn match_first(input: &str) -> Option<usize> {
-        match input.char_indices().next()? {
-            (_, '<') => None,
-            (_, '&') => None,
-            (_, '%') => None,
-            (_, '"') => None,
-            (0, _) => None,
-            (l, _) => Some(l),
+        match input.chars().next()? {
+            '<' => None,
+            '&' => None,
+            '%' => None,
+            '"' => None,
+            c => Some(c.len_utf8()),
         }
     }
 }
@@ -334,14 +329,9 @@ pub fn expect_whitespaces<'src>(input: &mut &'src str) -> Result<usize, XmlParsi
 
 /// Expects a fixed byte sequence, or throws an error.
 pub fn expect_bytes<'src>(input: &mut &'src str, expected: &'static str) -> Result<(), XmlParsingError<'src>> {
-    *input = input.strip_prefix(expected).ok_or_else(|| {
-        let expected_char_count = expected.chars().count();
-        let obtained = match input.char_indices().skip(expected_char_count).next() {
-            Some((i, _)) => &input[..i],
-            None => input,
-        };
-        XmlParsingError::unexpected(&[expected], obtained)
-    })?;
+    *input = input
+        .strip_prefix(expected)
+        .ok_or_else(|| XmlParsingError::unexpected(&[expected], input))?;
     Ok(())
 }
 
