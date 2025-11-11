@@ -3,14 +3,14 @@ mod parsing;
 
 use error::XmlParsingError;
 use parsing::*;
-use std::fmt::Write;
+use std::fmt::{Pointer, Write};
 
 pub fn parse_xml<'src>(input: &'src str) -> Result<Document<'src>, XmlParsingError<'src>> {
     let mut input = input;
     Document::parse(&mut input)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum QuoteKind {
     Single,
     Double,
@@ -58,7 +58,7 @@ impl std::fmt::Display for QuoteKind {
 }
 
 /// Repetition modifiers, a special set of characters that are used in element definition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RepetitionOperator {
     /// Zero or one element, the '?' repetition operator.
     ZeroOrOne,
@@ -109,6 +109,7 @@ trait XmlElement<'src>: Sized {
 /// [1] - Document
 ///
 /// https://www.w3.org/TR/xml/#NT-document
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Document<'src> {
     pub prolog: Prolog<'src>,
     pub element: Element<'src>,
@@ -142,6 +143,7 @@ impl<'src> XmlElement<'src> for Document<'src> {
         self.prolog.write(output)?;
         output.write_all("\n".as_bytes())?;
         self.element.write(output)?;
+        output.write_all("\n".as_bytes())?;
         for misc in self.misc.iter() {
             misc.write(output)?;
         }
@@ -153,6 +155,7 @@ impl<'src> XmlElement<'src> for Document<'src> {
 /// [5] - Name
 ///
 /// https://www.w3.org/TR/xml/#NT-Name
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Name<'src>(&'src str);
 
 impl<'src> XmlElement<'src> for Name<'src> {
@@ -180,6 +183,7 @@ impl<'src> std::fmt::Display for Name<'src> {
 /// [8] - Nm Token
 ///
 /// https://www.w3.org/TR/xml/#NT-Nmtoken
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NmToken<'src>(&'src str);
 
 impl<'src> XmlElement<'src> for NmToken<'src> {
@@ -207,6 +211,7 @@ impl<'src> std::fmt::Display for NmToken<'src> {
 /// [9] - Entity Value
 ///
 /// https://www.w3.org/TR/xml/#NT-EntityValue
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EntityValue<'src> {
     pub literal: Vec<EntityValueElem<'src>>,
     pub quote: QuoteKind,
@@ -271,6 +276,7 @@ impl<'src> XmlElement<'src> for EntityValue<'src> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EntityValueElem<'src> {
     CharSlice(&'src str),
     Reference(Reference<'src>),
@@ -280,6 +286,7 @@ pub enum EntityValueElem<'src> {
 /// [10] - Attribute Value
 ///
 /// https://www.w3.org/TR/xml/#NT-AttValue
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AttValue<'src> {
     pub literal: Vec<AttValueElem<'src>>,
     pub quote: QuoteKind,
@@ -338,6 +345,21 @@ impl<'src> XmlElement<'src> for AttValue<'src> {
     }
 }
 
+impl<'src> std::fmt::Display for AttValue<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.quote.to_str())?;
+        for elem in self.literal.iter() {
+            match elem {
+                AttValueElem::CharSlice(slice) => f.write_str(slice)?,
+                AttValueElem::Reference(reference) => reference.fmt(f)?,
+            }
+        }
+        f.write_str(self.quote.to_str())?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AttValueElem<'src> {
     CharSlice(&'src str),
     Reference(Reference<'src>),
@@ -346,6 +368,7 @@ pub enum AttValueElem<'src> {
 /// [11] - System Literal
 ///
 /// https://www.w3.org/TR/xml/#NT-SystemLiteral
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SystemLiteral<'src> {
     pub literal: &'src str,
     pub quote: QuoteKind,
@@ -371,6 +394,7 @@ impl<'src> XmlElement<'src> for SystemLiteral<'src> {
 /// [12] - Public Id Literal
 ///
 /// https://www.w3.org/TR/xml/#NT-PubidLiteral
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PubidLiteral<'src> {
     pub literal: &'src str,
     pub quote: QuoteKind,
@@ -391,6 +415,7 @@ impl<'src> XmlElement<'src> for PubidLiteral<'src> {
 /// [14] - Character Data
 ///
 /// https://www.w3.org/TR/xml/#NT-Comment
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CharData<'src>(&'src str);
 
 impl<'src> XmlElement<'src> for CharData<'src> {
@@ -412,6 +437,7 @@ impl<'src> std::ops::Deref for CharData<'src> {
 /// [15] - Comment
 ///
 /// https://www.w3.org/TR/xml/#NT-Comment
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Comment<'src> {
     pub comment: &'src str,
 }
@@ -442,6 +468,7 @@ impl<'src> XmlElement<'src> for Comment<'src> {
 /// [16] - Processing Instruction (PI)
 ///
 /// https://www.w3.org/TR/xml/#NT-PI
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PI<'src> {
     pub target: Name<'src>,
     pub instruction: Option<&'src str>,
@@ -491,6 +518,7 @@ impl<'src> XmlElement<'src> for PI<'src> {
 }
 
 /// [18] - C DATA Section
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CDSect<'src> {
     data: &'src str,
 }
@@ -520,6 +548,7 @@ impl<'src> XmlElement<'src> for CDSect<'src> {
 /// [22] - Prolog
 ///
 /// https://www.w3.org/TR/xml/#sec-prolog-dtd
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Prolog<'src> {
     pub declaration: Option<XmlDeclaration<'src>>,
     pub misc: Vec<Miscellaneous<'src>>,
@@ -582,9 +611,10 @@ impl<'src> XmlElement<'src> for Prolog<'src> {
 /// [23] - Xml Declaration
 ///
 /// https://www.w3.org/TR/xml/#NT-XMLDecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct XmlDeclaration<'src> {
     pub version: VersionInfo,
-    pub encoding: Option<EncodingDeclaration<'src>>,
+    pub encoding: Option<EncodingDecl<'src>>,
     pub standalone: Option<SDDecl>,
 }
 
@@ -604,7 +634,7 @@ impl<'src> XmlElement<'src> for XmlDeclaration<'src> {
         let mut temp = *input;
         skip_whitespaces(&mut temp);
         let encoding = if temp.starts_with("encoding") {
-            Some(EncodingDeclaration::parse(input).map_err(|e| e.add_ctx::<Self>())?)
+            Some(EncodingDecl::parse(input).map_err(|e| e.add_ctx::<Self>())?)
         } else {
             None
         };
@@ -644,6 +674,7 @@ impl<'src> XmlElement<'src> for XmlDeclaration<'src> {
 /// [24] - Version Information
 ///
 /// https://www.w3.org/TR/xml/#NT-VersionInfo
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VersionInfo {
     pub major: usize,
     pub minor: usize,
@@ -684,6 +715,7 @@ impl<'src> XmlElement<'src> for VersionInfo {
 /// [27] - Miscellaneous (Misc)
 ///
 /// https://www.w3.org/TR/xml/#NT-Misc
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Miscellaneous<'src> {
     Comment(Comment<'src>),
     Pi(PI<'src>),
@@ -712,6 +744,7 @@ impl<'src> XmlElement<'src> for Miscellaneous<'src> {
 /// [28] - Doctype Declaration
 ///
 /// https://www.w3.org/TR/xml/#NT-doctypedecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DoctypeDecl<'src> {
     pub name: Name<'src>,
     pub external_id: Option<ExternalID<'src>>,
@@ -770,6 +803,7 @@ impl<'src> XmlElement<'src> for DoctypeDecl<'src> {
 /// [28a] - Declaration Separator
 ///
 /// https://www.w3.org/TR/xml/#NT-DeclSep
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DeclSeparator<'src> {
     PEReference(PEReference<'src>),
     Space,
@@ -795,6 +829,7 @@ impl<'src> XmlElement<'src> for DeclSeparator<'src> {
 /// [28b] - Int Subset
 ///
 /// https://www.w3.org/TR/xml/#NT-intSubset
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IntSubset<'src> {
     pub elements: Vec<IntSubsetElement<'src>>,
 }
@@ -811,7 +846,7 @@ impl<'src> XmlElement<'src> for IntSubset<'src> {
                 )),
                 /* "<" are the start of a markup declaration */
                 Some('<') => elements.push(IntSubsetElement::MarkupDecl(
-                    MarkupDeclaration::parse(input).map_err(|e| e.add_ctx::<Self>())?,
+                    MarkupDecl::parse(input).map_err(|e| e.add_ctx::<Self>())?,
                 )),
                 /* "]" is the expected character after the int subset */
                 Some(']') => break,
@@ -833,15 +868,17 @@ impl<'src> XmlElement<'src> for IntSubset<'src> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum IntSubsetElement<'src> {
-    MarkupDecl(MarkupDeclaration<'src>),
+    MarkupDecl(MarkupDecl<'src>),
     DeclSep(DeclSeparator<'src>),
 }
 
 /// [29] - Markup Declaration
 ///
 /// https://www.w3.org/TR/xml/#NT-markupdecl
-pub enum MarkupDeclaration<'src> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MarkupDecl<'src> {
     ElementDecl(ElementDecl<'src>),
     AttListDecl(AttListDecl<'src>),
     EntityDecl(EntityDecl<'src>),
@@ -850,12 +887,18 @@ pub enum MarkupDeclaration<'src> {
     Comment(Comment<'src>),
 }
 
-impl<'src> XmlElement<'src> for MarkupDeclaration<'src> {
+impl<'src> XmlElement<'src> for MarkupDecl<'src> {
     fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         if input.starts_with(ElementDecl::OPENING_TAG) {
             Ok(Self::ElementDecl(ElementDecl::parse(input).map_err(|e| e.add_ctx::<Self>())?))
         } else if input.starts_with(AttListDecl::OPENING_TAG) {
             Ok(Self::AttListDecl(AttListDecl::parse(input).map_err(|e| e.add_ctx::<Self>())?))
+        } else if input.starts_with(EntityDecl::OPENING_TAG) {
+            Ok(Self::EntityDecl(EntityDecl::parse(input).map_err(|e| e.add_ctx::<Self>())?))
+        } else if input.starts_with(NotationDecl::OPENING_TAG) {
+            Ok(Self::NotationDecl(
+                NotationDecl::parse(input).map_err(|e| e.add_ctx::<Self>())?,
+            ))
         } else if input.starts_with(PI::OPENING_TAG) {
             Ok(Self::PI(PI::parse(input).map_err(|e| e.add_ctx::<Self>())?))
         } else if input.starts_with(Comment::OPENING_TAG) {
@@ -864,6 +907,8 @@ impl<'src> XmlElement<'src> for MarkupDeclaration<'src> {
             let expected = &[
                 ElementDecl::OPENING_TAG,
                 AttListDecl::OPENING_TAG,
+                EntityDecl::OPENING_TAG,
+                NotationDecl::OPENING_TAG,
                 PI::OPENING_TAG,
                 Comment::OPENING_TAG,
             ];
@@ -885,6 +930,7 @@ impl<'src> XmlElement<'src> for MarkupDeclaration<'src> {
 /// [32] - Standalone Declaration
 ///
 /// https://www.w3.org/TR/xml/#NT-SDDecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SDDecl {
     pub standalone: bool,
     pub quote: QuoteKind,
@@ -925,6 +971,7 @@ impl<'src> XmlElement<'src> for SDDecl {
 /// [39] - Element
 ///
 /// https://www.w3.org/TR/xml/#NT-element
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Element<'src> {
     EmptyElemTag(EmptyElemTag<'src>),
     Element {
@@ -993,9 +1040,10 @@ impl<'src> XmlElement<'src> for Element<'src> {
 /// [40] - Start Tag
 ///
 /// https://www.w3.org/TR/xml/#NT-STag
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct STag<'src> {
-    name: Name<'src>,
-    attributes: Vec<Attribute<'src>>,
+    pub name: Name<'src>,
+    pub attributes: Vec<Attribute<'src>>,
 }
 
 impl<'src> STag<'src> {
@@ -1040,9 +1088,10 @@ impl<'src> XmlElement<'src> for STag<'src> {
 /// [41] - Attribute
 ///
 /// https://www.w3.org/TR/xml/#NT-Attribute
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Attribute<'src> {
-    name: Name<'src>,
-    value: AttValue<'src>,
+    pub name: Name<'src>,
+    pub value: AttValue<'src>,
 }
 
 impl<'src> XmlElement<'src> for Attribute<'src> {
@@ -1064,8 +1113,9 @@ impl<'src> XmlElement<'src> for Attribute<'src> {
 /// [42] - End Tag
 ///
 /// https://www.w3.org/TR/xml/#NT-ETag
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ETag<'src> {
-    name: Name<'src>,
+    pub name: Name<'src>,
 }
 
 impl<'src> ETag<'src> {
@@ -1090,9 +1140,10 @@ impl<'src> XmlElement<'src> for ETag<'src> {
 /// [43] - Content
 ///
 /// https://www.w3.org/TR/xml/#NT-content
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Content<'src> {
-    first_chars: Option<CharData<'src>>,
-    content: Vec<(ContentElement<'src>, Option<CharData<'src>>)>,
+    pub first_chars: Option<CharData<'src>>,
+    pub content: Vec<(ContentElement<'src>, Option<CharData<'src>>)>,
 }
 
 impl<'src> XmlElement<'src> for Content<'src> {
@@ -1167,6 +1218,7 @@ impl<'src> XmlElement<'src> for Content<'src> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ContentElement<'src> {
     Element(Element<'src>),
     Reference(Reference<'src>),
@@ -1184,6 +1236,7 @@ impl<'src> ContentElement<'src> {
 /// [44] - Empty Element Tag
 ///
 /// https://www.w3.org/TR/xml/#NT-EmptyElemTag
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EmptyElemTag<'src> {
     name: Name<'src>,
     attributes: Vec<Attribute<'src>>,
@@ -1231,6 +1284,7 @@ impl<'src> XmlElement<'src> for EmptyElemTag<'src> {
 /// [45] - Element declaration.
 ///
 /// https://www.w3.org/TR/xml/#NT-elementdecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ElementDecl<'src> {
     pub name: Name<'src>,
     pub content_spec: ContentSpec<'src>,
@@ -1262,6 +1316,7 @@ impl<'src> XmlElement<'src> for ElementDecl<'src> {
 /// [46] - Content Specification
 ///
 /// https://www.w3.org/TR/xml/#NT-contentspec
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ContentSpec<'src> {
     Empty,
     Any,
@@ -1295,6 +1350,7 @@ impl<'src> XmlElement<'src> for ContentSpec<'src> {
 /// [47] - Children
 ///
 /// https://www.w3.org/TR/xml/#NT-children
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ElementContentChildren<'src> {
     Choice {
         choice: ElementContentChoice<'src>,
@@ -1388,6 +1444,7 @@ impl<'src> XmlElement<'src> for ElementContentChildren<'src> {
 /// [48] - Content Particle
 ///
 /// https://www.w3.org/TR/xml/#NT-cp
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ElementContentParticle<'src> {
     Name {
         name: Name<'src>,
@@ -1444,6 +1501,7 @@ impl<'src> XmlElement<'src> for ElementContentParticle<'src> {
 /// [49] - Choice
 ///
 /// https://www.w3.org/TR/xml/#NT-choice
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ElementContentChoice<'src> {
     pub choices: Vec<ElementContentParticle<'src>>,
 }
@@ -1463,6 +1521,7 @@ impl<'src> ElementContentChoice<'src> {
 /// [50] - Seq
 ///
 /// https://www.w3.org/TR/xml/#NT-seq
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ElementContentSeq<'src> {
     pub sequence: Vec<ElementContentParticle<'src>>,
 }
@@ -1482,6 +1541,7 @@ impl<'src> ElementContentSeq<'src> {
 /// [52] - Attribute List Declaration
 ///
 /// https://www.w3.org/TR/xml/#NT-AttlistDecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AttListDecl<'src> {
     pub name: Name<'src>,
     pub definitions: Vec<AttDef<'src>>,
@@ -1529,6 +1589,7 @@ impl<'src> XmlElement<'src> for AttListDecl<'src> {
 /// [53] - Attribut Definition
 ///
 /// https://www.w3.org/TR/xml/#NT-AttDef
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AttDef<'src> {
     pub name: Name<'src>,
     pub attribute_type: AttributeType<'src>,
@@ -1563,6 +1624,7 @@ impl<'src> XmlElement<'src> for AttDef<'src> {
 /// [54] - Attribute Type
 ///
 /// https://www.w3.org/TR/xml/#NT-AttType
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AttributeType<'src> {
     StringType(StringType),
     TokenizedType(TokenizedType),
@@ -1614,6 +1676,7 @@ impl<'src> XmlElement<'src> for AttributeType<'src> {
 }
 
 /// [55] - XmlParsingError<'src> Type
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StringType;
 
 impl StringType {
@@ -1633,6 +1696,7 @@ impl<'src> XmlElement<'src> for StringType {
 /// [56] - Tokenized Type
 ///
 /// https://www.w3.org/TR/xml/#NT-TokenizedType
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TokenizedType {
     Id,
     IdRef,
@@ -1707,6 +1771,7 @@ impl<'src> XmlElement<'src> for TokenizedType {
 /// [57] - Enumerated Type
 ///
 /// https://www.w3.org/TR/xml/#NT-EnumeratedType
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EnumeratedType<'src> {
     Notation(NotationType<'src>),
     Enumeration(Enumeration<'src>),
@@ -1731,6 +1796,7 @@ impl<'src> XmlElement<'src> for EnumeratedType<'src> {
 /// [58] - Notation Type
 ///
 /// https://www.w3.org/TR/xml/#NT-NotationType
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NotationType<'src> {
     pub first: Name<'src>,
     pub others: Vec<Name<'src>>,
@@ -1786,6 +1852,7 @@ impl<'src> XmlElement<'src> for NotationType<'src> {
 /// [59] - Enumeration
 ///
 /// https://www.w3.org/TR/xml/#NT-Enumeration
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Enumeration<'src> {
     pub first: NmToken<'src>,
     pub others: Vec<NmToken<'src>>,
@@ -1831,6 +1898,7 @@ impl<'src> XmlElement<'src> for Enumeration<'src> {
 /// [60] - Default Declaration
 ///
 /// https://www.w3.org/TR/xml/#NT-DefaultDecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DefaultDecl<'src> {
     Required,
     Implied,
@@ -1880,14 +1948,15 @@ impl<'src> XmlElement<'src> for DefaultDecl<'src> {
 /// [66] - Character Reference
 ///
 /// https://www.w3.org/TR/xml/#NT-CharRef
-pub struct CharacterReference(u64);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CharRef(u64);
 
-impl<'src> CharacterReference {
+impl<'src> CharRef {
     const OPENING_TAG: &'static str = "&#";
     const CLOSING_TAG: &'static str = ";";
 }
 
-impl<'src> XmlElement<'src> for CharacterReference {
+impl<'src> XmlElement<'src> for CharRef {
     fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG).map_err(|e| e.add_ctx::<Self>())?;
         let character_point = match input.chars().next() {
@@ -1902,7 +1971,7 @@ impl<'src> XmlElement<'src> for CharacterReference {
             }
         };
         expect_bytes(input, Self::CLOSING_TAG).map_err(|e| e.add_ctx::<Self>())?;
-        Ok(CharacterReference(character_point))
+        Ok(CharRef(character_point))
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         write!(output, "&#x{:x};", self.0)
@@ -1912,9 +1981,10 @@ impl<'src> XmlElement<'src> for CharacterReference {
 /// [67] - Reference
 ///
 /// https://www.w3.org/TR/xml/#NT-Reference
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Reference<'src> {
-    Entity(EntityReference<'src>),
-    Character(CharacterReference),
+    EntityRef(EntityRef<'src>),
+    CharRef(CharRef),
 }
 
 impl<'src> Reference<'src> {
@@ -1923,23 +1993,30 @@ impl<'src> Reference<'src> {
 
 impl<'src> XmlElement<'src> for Reference<'src> {
     fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
-        if input.starts_with(CharacterReference::OPENING_TAG) {
-            Ok(Self::Character(
-                CharacterReference::parse(input).map_err(|e| e.add_ctx::<Self>())?,
-            ))
-        } else if input.starts_with(EntityReference::OPENING_TAG) {
-            Ok(Self::Entity(EntityReference::parse(input).map_err(|e| e.add_ctx::<Self>())?))
+        if input.starts_with(CharRef::OPENING_TAG) {
+            Ok(Self::CharRef(CharRef::parse(input).map_err(|e| e.add_ctx::<Self>())?))
+        } else if input.starts_with(EntityRef::OPENING_TAG) {
+            Ok(Self::EntityRef(EntityRef::parse(input).map_err(|e| e.add_ctx::<Self>())?))
         } else {
             Err(XmlParsingError::unexpected(
-                &[CharacterReference::OPENING_TAG, EntityReference::OPENING_TAG],
+                &[CharRef::OPENING_TAG, EntityRef::OPENING_TAG],
                 input,
             ))
         }
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self {
-            Self::Entity(entity) => entity.write(output),
-            Self::Character(character) => character.write(output),
+            Self::EntityRef(entity) => entity.write(output),
+            Self::CharRef(character) => character.write(output),
+        }
+    }
+}
+
+impl<'src> std::fmt::Display for Reference<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::CharRef(char_ref) => char_ref.fmt(f),
+            Self::EntityRef(entity) => entity.fmt(f),
         }
     }
 }
@@ -1947,28 +2024,41 @@ impl<'src> XmlElement<'src> for Reference<'src> {
 /// [68] - Entity Reference
 ///
 /// https://www.w3.org/TR/xml/#NT-EntityRef
-pub struct EntityReference<'src>(Name<'src>);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EntityRef<'src> {
+    pub name: Name<'src>,
+}
 
-impl<'src> EntityReference<'src> {
+impl<'src> EntityRef<'src> {
     const OPENING_TAG: &'static str = "&";
     const CLOSING_TAG: &'static str = ";";
 }
 
-impl<'src> XmlElement<'src> for EntityReference<'src> {
+impl<'src> XmlElement<'src> for EntityRef<'src> {
     fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG).map_err(|e| e.add_ctx::<Self>())?;
         let name = Name::parse(input).map_err(|e| e.add_ctx::<Self>())?;
         expect_bytes(input, Self::CLOSING_TAG).map_err(|e| e.add_ctx::<Self>())?;
-        Ok(Self(name))
+        Ok(Self { name })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
-        write!(output, "{}{}{}", Self::OPENING_TAG, self.0, Self::CLOSING_TAG)
+        write!(output, "{}{}{}", Self::OPENING_TAG, self.name, Self::CLOSING_TAG)
+    }
+}
+
+impl<'src> std::fmt::Display for EntityRef<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(Self::OPENING_TAG)?;
+        f.write_str(&self.name)?;
+        f.write_str(Self::CLOSING_TAG)?;
+        Ok(())
     }
 }
 
 /// [69] - Parameter Entity Reference
 ///
 /// https://www.w3.org/TR/xml/#NT-PEReference
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PEReference<'src> {
     pub name: Name<'src>,
 }
@@ -1990,9 +2080,19 @@ impl<'src> XmlElement<'src> for PEReference<'src> {
     }
 }
 
+impl<'src> std::fmt::Display for PEReference<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(Self::OPENING_TAG)?;
+        f.write_str(&self.name)?;
+        f.write_str(Self::CLOSING_TAG)?;
+        Ok(())
+    }
+}
+
 /// [70] - Entity Declaration
 ///
 /// https://www.w3.org/TR/xml/#NT-EntityDecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EntityDecl<'src> {
     GEDecl(GEDecl<'src>),
     PEDecl(PEDecl<'src>),
@@ -2027,6 +2127,7 @@ impl<'src> XmlElement<'src> for EntityDecl<'src> {
 /// [71] - G Entity Declaraion
 ///
 /// https://www.w3.org/TR/xml/#NT-GEDecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GEDecl<'src> {
     pub name: Name<'src>,
     pub entity_def: EntityDef<'src>,
@@ -2059,6 +2160,7 @@ impl<'src> XmlElement<'src> for GEDecl<'src> {
 /// [72] - P Entity Declaration
 ///
 /// https://www.w3.org/TR/xml/#NT-PEDecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PEDecl<'src> {
     pub name: Name<'src>,
     pub pe_def: PEDef<'src>,
@@ -2093,6 +2195,7 @@ impl<'src> XmlElement<'src> for PEDecl<'src> {
 /// [73] - Entity Definition
 ///
 /// https://www.w3.org/TR/xml/#NT-EntityDef
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EntityDef<'src> {
     EntityValue(EntityValue<'src>),
     External {
@@ -2134,6 +2237,7 @@ impl<'src> XmlElement<'src> for EntityDef<'src> {
 /// [74] - P Entity Definition
 ///
 /// https://www.w3.org/TR/xml/#NT-PEDef
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PEDef<'src> {
     EntityValue(EntityValue<'src>),
     ExternalID(ExternalID<'src>),
@@ -2158,6 +2262,7 @@ impl<'src> XmlElement<'src> for PEDef<'src> {
 /// [75] - External Id
 ///
 /// https://www.w3.org/TR/xml/#NT-ExternalID
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ExternalID<'src> {
     System {
         system: SystemLiteral<'src>,
@@ -2210,6 +2315,7 @@ impl<'src> XmlElement<'src> for ExternalID<'src> {
 /// [76] - Notation Data Declaration
 ///
 /// https://www.w3.org/TR/xml/#NT-NDataDecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NDataDecl<'src> {
     pub name: Name<'src>,
 }
@@ -2234,12 +2340,13 @@ impl<'src> XmlElement<'src> for NDataDecl<'src> {
 /// [80] - Encoding Declaration
 ///
 /// https://www.w3.org/TR/xml/#NT-EncodingDecl
-pub struct EncodingDeclaration<'src> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EncodingDecl<'src> {
     pub encoding: &'src str,
     pub quote: QuoteKind,
 }
 
-impl<'src> XmlElement<'src> for EncodingDeclaration<'src> {
+impl<'src> XmlElement<'src> for EncodingDecl<'src> {
     fn parse(input: &mut &'src str) -> Result<Self, XmlParsingError<'src>> {
         expect_whitespaces(input).map_err(|e| e.add_ctx::<Self>())?;
         expect_bytes(input, "encoding").map_err(|e| e.add_ctx::<Self>())?;
@@ -2259,6 +2366,7 @@ impl<'src> XmlElement<'src> for EncodingDeclaration<'src> {
 /// [82] - Notation Declaration
 ///
 /// https://www.w3.org/TR/xml/#NT-NotationDecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum NotationDecl<'src> {
     ExternalID {
         name: Name<'src>,
@@ -2312,7 +2420,8 @@ impl<'src> XmlElement<'src> for NotationDecl<'src> {
 
 /// [83] - Public ID
 ///
-/// https://www.w3.org/TR/xml/#NT-NotationDecl
+/// https://www.w3.org/TR/xml/#NT-PublicID
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PublicID<'src> {
     pub literal: PubidLiteral<'src>,
 }

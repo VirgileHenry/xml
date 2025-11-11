@@ -6,3 +6,8 @@ edition = "2024"
 [[bin]]
 name = "tiger"
 path = "bin/tiger.rs"
+
+[[test]]
+name = "test_suite"
+path = "test/main.rs"
+harness = false
