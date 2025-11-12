@@ -41,5 +41,18 @@ impl<'src> TestDeclaration<'src> {
 
     pub fn run(&self) {
         println!("Running test {} at {}", self.name, self.path);
+
+        let test_case_conf_file = match std::fs::read_to_string(format!("{}/{}", super::TEST_SUITE_LOC, self.path)) {
+            Ok(file) => file,
+            Err(e) => fatal_error(&format!("Failed to open test suite conf file: {e}")),
+        };
+        let test_case_conf = match xml::parse_xml(&test_case_conf_file) {
+            Ok(xml) => xml,
+            Err(e) => fatal_error(&format!("Failed to parse xml test suite conf: {e}")),
+        };
+
+        match test_case_conf.element {
+            xml::Element::EmptyElemTag(_) => fatal_error("Unexpected empty element for test case"),
+        }
     }
 }

@@ -4,19 +4,22 @@ use crate::error::XmlParsingError;
 /// and create functions to expect chars and strings that are only chars from within the set.
 /// This is useful to parse litterals that can only be from given sets.
 pub trait CharacterSet {
-    /// Returns whether the first character of the given string is in the given character set.
-    /// If the character is in it, return Some with the number of bytes that characters takes.
-    /// Otherwise, returns None when the first character is not in the character set.
-    fn match_first(input: &str) -> Option<usize>;
+    /// Name of the character set, that will appear in the errors when it was expected.
+    const NAME: &'static str;
+    const CONTAINS_SPACES: bool;
+    /// TODO
+    fn munch(input: &str) -> Option<usize>;
 }
 
 /// Decimals digits character set, so 0-9.
 pub struct DecimalDigits;
 
 impl CharacterSet for DecimalDigits {
-    fn match_first(input: &str) -> Option<usize> {
-        match input.as_bytes().first()? {
-            0x30..=0x39 => Some(1),
+    const NAME: &'static str = "[0-9]";
+    const CONTAINS_SPACES: bool = false;
+    fn munch(input: &str) -> Option<usize> {
+        match input.chars().next()? {
+            '0'..='9' => Some(1),
             _ => None,
         }
     }
@@ -26,40 +29,11 @@ impl CharacterSet for DecimalDigits {
 pub struct HexadecimalDigits;
 
 impl CharacterSet for HexadecimalDigits {
-    fn match_first(input: &str) -> Option<usize> {
-        match input.as_bytes().first()? {
-            0x30..=0x39 => Some(1),
-            0x41..=0x46 => Some(1),
-            0x61..=0x66 => Some(1),
-            _ => None,
-        }
-    }
-}
-
-/// [2] - Char
-///
-/// https://www.w3.org/TR/xml/#NT-Char
-pub struct XmlChar;
-
-impl CharacterSet for XmlChar {
-    fn match_first(input: &str) -> Option<usize> {
-        let bytes = input.as_bytes();
-        let word: u32 = match bytes.len() {
-            0 => return None,
-            1 => u32::from(bytes[0]) << 24,
-            2 => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16),
-            3 => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16) | (u32::from(bytes[2]) << 8),
-            _ => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16) | (u32::from(bytes[2]) << 8) | u32::from(bytes[3]),
-        };
-        match word {
-            0x09_000000..=0x09_FFFFFF => Some(1), /* Single point \t */
-            0x0A_000000..=0x0A_FFFFFF => Some(1), /* Single point \n */
-            0x0D_000000..=0x0D_FFFFFF => Some(1), /* Single point \r */
-            0x20_000000..=0x7F_FFFFFF => Some(1), /* ASCII visible chars */
-            0xC280_0000..=0xDFBF_FFFF => Some(2), /* Two-byte UTF-8 (U+0080–U+07FF) */
-            0xE0A080_00..=0xED9FBF_FF => Some(3), /* Three-byte UTF-8 (U+0800–U+D7FF) */
-            0xEE8080_00..=0xEFBFBF_FF => Some(3), /* Three-byte UTF-8 (U+E000–U+FFFD) */
-            0xF0908080_..=0xF48FBFBF_ => Some(4), /* Four-byte UTF-8 (U+10000–U+10FFFF) */
+    const NAME: &'static str = "[0-9a-fA-F]";
+    const CONTAINS_SPACES: bool = false;
+    fn munch(input: &str) -> Option<usize> {
+        match input.chars().next()? {
+            '0'..='9' | 'A'..='F' | 'a'..='f' => Some(1),
             _ => None,
         }
     }
@@ -71,9 +45,11 @@ impl CharacterSet for XmlChar {
 pub struct Spaces;
 
 impl CharacterSet for Spaces {
-    fn match_first(input: &str) -> Option<usize> {
-        match input.as_bytes().first()? {
-            0x20 | 0x09 | 0x0D | 0x0A => Some(1),
+    const NAME: &'static str = "\\s";
+    const CONTAINS_SPACES: bool = true;
+    fn munch(input: &str) -> Option<usize> {
+        match input.chars().next()? {
+            '\n' | 'r' | ' ' | '\t' => Some(1),
             _ => None,
         }
     }
@@ -85,39 +61,27 @@ impl CharacterSet for Spaces {
 pub struct NameChar;
 
 impl CharacterSet for NameChar {
-    fn match_first(input: &str) -> Option<usize> {
-        let bytes = input.as_bytes();
-        let word: u32 = match bytes.len() {
-            0 => return None,
-            1 => u32::from(bytes[0]) << 24,
-            2 => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16),
-            3 => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16) | (u32::from(bytes[2]) << 8),
-            _ => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16) | (u32::from(bytes[2]) << 8) | u32::from(bytes[3]),
-        };
-        match word {
-            0x3A_000000..=0x3A_FFFFFF => Some(1), /* ":" */
-            0x41_000000..=0x5A_FFFFFF => Some(1), /* [A-Z] */
-            0x5F_000000..=0x5F_FFFFFF => Some(1), /* "_" */
-            0x61_000000..=0x7A_FFFFFF => Some(1), /* [a-z] */
-            0x2D_000000..=0x2D_FFFFFF => Some(1), /* "-" */
-            0x2E_000000..=0x2E_FFFFFF => Some(1), /* "." */
-            0x30_000000..=0x39_FFFFFF => Some(1), /* [0-9] */
-            0xC380_0000..=0xC396_FFFF => Some(2), /* Two-byte UTF-8 (U+00C0–U+00D6) */
-            0xC398_0000..=0xC3B6_FFFF => Some(2), /* Two-byte UTF-8 (U+00D8–U+00F6) */
-            0xC3B8_0000..=0xCBBF_FFFF => Some(2), /* Two-byte UTF-8 (U+00F8–U+02FF) */
-            0xCDB0_0000..=0xCDBD_FFFF => Some(2), /* Two-byte UTF-8 (U+0370–U+037D) */
-            0xCDBF_0000..=0xDFBF_FFFF => Some(2), /* Two-byte UTF-8 (U+037F–U+07FF) */
-            0xC2B7_0000..=0xC2B7_FFFF => Some(2), /* Two-byte UTF-8 (U+00B7) */
-            0xCC80_0000..=0xCDAF_FFFF => Some(2), /* Two-byte UTF-8 (U+0300–U+036F) */
-            0xE0A080_00..=0xE1BFBF_FF => Some(3), /* Three-byte UTF-8 (U+0800–U+1FFF) */
-            0xE2808C_00..=0xE2808D_FF => Some(3), /* Three-byte UTF-8 (U+200C–U+200D) */
-            0xE281B0_00..=0xE2868F_FF => Some(3), /* Three-byte UTF-8 (U+2070–U+218F) */
-            0xE2B080_00..=0xE2BFAF_FF => Some(3), /* Three-byte UTF-8 (U+2C00–U+2FEF) */
-            0xE38081_00..=0xED9FBF_FF => Some(3), /* Three-byte UTF-8 (U+3001–U+D7FF) */
-            0xEFA480_00..=0xEFB78F_FF => Some(3), /* Three-byte UTF-8 (U+F900–U+FDCF) */
-            0xEFB7B0_00..=0xEFBFBD_FF => Some(3), /* Three-byte UTF-8 (U+FDF0–U+FFFD) */
-            0xF0908080_..=0xF3AFBFBF_ => Some(4), /* Four-byte UTF-8 (U+10000–U+EFFFF) */
-            0xE280BF_00..=0xE28180_FF => Some(3), /* Three-byte UTF-8 (U+203F–U+2040) */
+    const NAME: &'static str = "[Name Char]";
+    const CONTAINS_SPACES: bool = false;
+    fn munch(input: &str) -> Option<usize> {
+        let next_char = input.chars().next()?;
+        match next_char {
+            ':'
+            | 'A'..='Z'
+            | '_'
+            | 'a'..='z'
+            | '\u{C0}'..='\u{D6}'
+            | '\u{D8}'..='\u{F6}'
+            | '\u{F8}'..='\u{2FF}'
+            | '\u{370}'..='\u{37D}'
+            | '\u{37F}'..='\u{1FFF}'
+            | '\u{200C}'..='\u{200D}'
+            | '\u{2070}'..='\u{218F}'
+            | '\u{2C00}'..='\u{2FEF}'
+            | '\u{3001}'..='\u{D7FF}'
+            | '\u{F900}'..='\u{FDCF}'
+            | '\u{FDF0}'..='\u{FFFD}'
+            | '\u{10000}'..='\u{EFFFF}' => Some(next_char.len_utf8()),
             _ => None,
         }
     }
@@ -129,33 +93,33 @@ impl CharacterSet for NameChar {
 pub struct NameStartChar;
 
 impl CharacterSet for NameStartChar {
-    fn match_first(input: &str) -> Option<usize> {
-        let bytes = input.as_bytes();
-        let word: u32 = match bytes.len() {
-            0 => return None,
-            1 => u32::from(bytes[0]) << 24,
-            2 => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16),
-            3 => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16) | (u32::from(bytes[2]) << 8),
-            _ => (u32::from(bytes[0]) << 24) | (u32::from(bytes[1]) << 16) | (u32::from(bytes[2]) << 8) | u32::from(bytes[3]),
-        };
-        match word {
-            0x3A_000000..=0x3A_FFFFFF => Some(1), /* ":" */
-            0x41_000000..=0x5A_FFFFFF => Some(1), /* [A-Z] */
-            0x5F_000000..=0x5F_FFFFFF => Some(1), /* "_" */
-            0x61_000000..=0x7A_FFFFFF => Some(1), /* [a-z] */
-            0xC380_0000..=0xC396_FFFF => Some(2), /* Two-byte UTF-8 (U+00C0–U+00D6) */
-            0xC398_0000..=0xC3B6_FFFF => Some(2), /* Two-byte UTF-8 (U+00D8–U+00F6) */
-            0xC3B8_0000..=0xCBBF_FFFF => Some(2), /* Two-byte UTF-8 (U+00F8–U+02FF) */
-            0xCDB0_0000..=0xCDBD_FFFF => Some(2), /* Two-byte UTF-8 (U+0370–U+037D) */
-            0xCDBF_0000..=0xDFBF_FFFF => Some(2), /* Two-byte UTF-8 (U+037F–U+07FF) */
-            0xE0A080_00..=0xE1BFBF_FF => Some(3), /* Three-byte UTF-8 (U+0800–U+1FFF) */
-            0xE2808C_00..=0xE2808D_FF => Some(3), /* Three-byte UTF-8 (U+200C–U+200D) */
-            0xE281B0_00..=0xE2868F_FF => Some(3), /* Three-byte UTF-8 (U+2070–U+218F) */
-            0xE2B080_00..=0xE2BFAF_FF => Some(3), /* Three-byte UTF-8 (U+2C00–U+2FEF) */
-            0xE38081_00..=0xED9FBF_FF => Some(3), /* Three-byte UTF-8 (U+3001–U+D7FF) */
-            0xEFA480_00..=0xEFB78F_FF => Some(3), /* Three-byte UTF-8 (U+F900–U+FDCF) */
-            0xEFB7B0_00..=0xEFBFBD_FF => Some(3), /* Three-byte UTF-8 (U+FDF0–U+FFFD) */
-            0xF0908080_..=0xF3AFBFBF_ => Some(4), /* Four-byte UTF-8 (U+10000–U+EFFFF) */
+    const NAME: &'static str = "[Name Start Char]";
+    const CONTAINS_SPACES: bool = false;
+    fn munch(input: &str) -> Option<usize> {
+        let next_char = input.chars().next()?;
+        match next_char {
+            ':'
+            | 'A'..='Z'
+            | '_'
+            | 'a'..='z'
+            | '\u{C0}'..='\u{D6}'
+            | '\u{D8}'..='\u{F6}'
+            | '\u{F8}'..='\u{2FF}'
+            | '\u{370}'..='\u{37D}'
+            | '\u{37F}'..='\u{1FFF}'
+            | '\u{200C}'..='\u{200D}'
+            | '\u{2070}'..='\u{218F}'
+            | '\u{2C00}'..='\u{2FEF}'
+            | '\u{3001}'..='\u{D7FF}'
+            | '\u{F900}'..='\u{FDCF}'
+            | '\u{FDF0}'..='\u{FFFD}'
+            | '\u{10000}'..='\u{EFFFF}'
+            | '-'
+            | '.'
+            | '0'..='9'
+            | '\u{B7}'
+            | '\u{0300}'..='\u{036F}'
+            | '\u{203F}'..='\u{2040}' => Some(next_char.len_utf8()),
             _ => None,
         }
     }
@@ -167,14 +131,36 @@ impl CharacterSet for NameStartChar {
 pub struct PubidChar;
 
 impl CharacterSet for PubidChar {
-    fn match_first(input: &str) -> Option<usize> {
-        match input.as_bytes().first()? {
-            0x20 | 0x0D | 0x0A => Some(1),
-            0x41..=0x5A | 0x61..=0x7A | 0x30..=0x39 => Some(1),
-            0x23..=0x25 => Some(1),
-            0x27..=0x2F => Some(1),
-            0x3A | 0x3B | 0x3D | 0x3F | 0x40 => Some(1),
-            0x5F => Some(1),
+    const NAME: &'static str = "[Pub]";
+    const CONTAINS_SPACES: bool = false;
+    fn munch(input: &str) -> Option<usize> {
+        match input.chars().next()? {
+            '\n'
+            | 'r'
+            | ' '
+            | '\t'
+            | '0'..='9'
+            | 'a'..='z'
+            | 'A'..='Z'
+            | '-'
+            | '\''
+            | '('
+            | ')'
+            | '+'
+            | ','
+            | '.'
+            | '/'
+            | ':'
+            | '='
+            | '?'
+            | ';'
+            | '!'
+            | '*'
+            | '#'
+            | '@'
+            | '$'
+            | '_'
+            | '%' => Some(1),
             _ => None,
         }
     }
@@ -186,9 +172,11 @@ impl CharacterSet for PubidChar {
 pub struct LatinAlphabet;
 
 impl CharacterSet for LatinAlphabet {
-    fn match_first(input: &str) -> Option<usize> {
-        match input.as_bytes().first()? {
-            0x41..=0x5A | 0x61..=0x7A => Some(1),
+    const NAME: &'static str = "[Latin Character]";
+    const CONTAINS_SPACES: bool = false;
+    fn munch(input: &str) -> Option<usize> {
+        match input.chars().next()? {
+            'a'..='z' | 'A'..='Z' => Some(1),
             _ => None,
         }
     }
@@ -197,10 +185,11 @@ impl CharacterSet for LatinAlphabet {
 pub struct ExtendedLatinAlphabet;
 
 impl CharacterSet for ExtendedLatinAlphabet {
-    fn match_first(input: &str) -> Option<usize> {
-        match input.as_bytes().first()? {
-            0x30..=0x39 | 0x41..=0x5A | 0x61..=0x7A => Some(1),
-            0x2D | 0x2E | 0x5F => Some(1),
+    const NAME: &'static str = "[Extended Latin Character]";
+    const CONTAINS_SPACES: bool = false;
+    fn munch(input: &str) -> Option<usize> {
+        match input.chars().next()? {
+            '0'..='9' | 'a'..='z' | 'A'..='Z' | '.' | '_' | '-' => Some(1),
             _ => None,
         }
     }
@@ -209,11 +198,13 @@ impl CharacterSet for ExtendedLatinAlphabet {
 pub struct CharDataCharSet;
 
 impl CharacterSet for CharDataCharSet {
-    fn match_first(input: &str) -> Option<usize> {
-        match input.chars().next()? {
-            '<' => None,
-            '&' => None,
-            c => Some(c.len_utf8()),
+    const NAME: &'static str = "[^<&]";
+    const CONTAINS_SPACES: bool = true;
+    fn munch(input: &str) -> Option<usize> {
+        let next_char = input.chars().next()?;
+        match next_char {
+            '<' | '&' => None,
+            ch => Some(ch.len_utf8()),
         }
     }
 }
@@ -221,12 +212,13 @@ impl CharacterSet for CharDataCharSet {
 pub struct SingleQuotedAttValueCharacters;
 
 impl CharacterSet for SingleQuotedAttValueCharacters {
-    fn match_first(input: &str) -> Option<usize> {
-        match input.chars().next()? {
-            '<' => None,
-            '&' => None,
-            '\'' => None,
-            c => Some(c.len_utf8()),
+    const NAME: &'static str = "[^<&']";
+    const CONTAINS_SPACES: bool = true;
+    fn munch(input: &str) -> Option<usize> {
+        let next_char = input.chars().next()?;
+        match next_char {
+            '<' | '&' | '\'' => None,
+            ch => Some(ch.len_utf8()),
         }
     }
 }
@@ -234,12 +226,13 @@ impl CharacterSet for SingleQuotedAttValueCharacters {
 pub struct DoubleQuotedAttValueCharacters;
 
 impl CharacterSet for DoubleQuotedAttValueCharacters {
-    fn match_first(input: &str) -> Option<usize> {
-        match input.chars().next()? {
-            '<' => None,
-            '&' => None,
-            '"' => None,
-            c => Some(c.len_utf8()),
+    const NAME: &'static str = "[^<&\"]";
+    const CONTAINS_SPACES: bool = true;
+    fn munch(input: &str) -> Option<usize> {
+        let next_char = input.chars().next()?;
+        match next_char {
+            '<' | '&' | '"' => None,
+            ch => Some(ch.len_utf8()),
         }
     }
 }
@@ -247,13 +240,13 @@ impl CharacterSet for DoubleQuotedAttValueCharacters {
 pub struct SingleQuotedEntityValueCharacters;
 
 impl CharacterSet for SingleQuotedEntityValueCharacters {
-    fn match_first(input: &str) -> Option<usize> {
-        match input.chars().next()? {
-            '<' => None,
-            '&' => None,
-            '%' => None,
-            '\'' => None,
-            c => Some(c.len_utf8()),
+    const NAME: &'static str = "[^<&%']";
+    const CONTAINS_SPACES: bool = true;
+    fn munch(input: &str) -> Option<usize> {
+        let next_char = input.chars().next()?;
+        match next_char {
+            '<' | '&' | '%' | '\'' => None,
+            ch => Some(ch.len_utf8()),
         }
     }
 }
@@ -261,13 +254,13 @@ impl CharacterSet for SingleQuotedEntityValueCharacters {
 pub struct DoubleQuotedEntityValueCharacters;
 
 impl CharacterSet for DoubleQuotedEntityValueCharacters {
-    fn match_first(input: &str) -> Option<usize> {
-        match input.chars().next()? {
-            '<' => None,
-            '&' => None,
-            '%' => None,
-            '"' => None,
-            c => Some(c.len_utf8()),
+    const NAME: &'static str = "[^<&%\"]";
+    const CONTAINS_SPACES: bool = true;
+    fn munch(input: &str) -> Option<usize> {
+        let next_char = input.chars().next()?;
+        match next_char {
+            '<' | '&' | '%' | '"' => None,
+            ch => Some(ch.len_utf8()),
         }
     }
 }
@@ -280,69 +273,124 @@ impl CharacterSet for DoubleQuotedEntityValueCharacters {
 ///
 /// This will only fail if the first encounterd character is not in the First char set.
 pub fn expect_string<'src, Start: CharacterSet, Rest: CharacterSet>(
-    input: &mut &'src str,
-) -> Result<&'src str, XmlParsingError<'src>> {
-    let start = *input;
-    let mut length = Start::match_first(input).ok_or_else(|| {
-        let expected = &[std::any::type_name::<Start>()];
-        XmlParsingError::unexpected(expected, input)
+    input: &mut crate::span::Span<'src>,
+) -> Result<crate::span::Span<'src>, XmlParsingError<'src>> {
+    let mut result = *input;
+
+    /* We require at least one character, otherwise it's an error! */
+    let mut length = Start::munch(input.span).ok_or_else(|| {
+        let expected = &[Start::NAME];
+        XmlParsingError::unexpected(expected, *input)
     })?;
-    *input = &input[length..];
-    while let Some(additional) = Rest::match_first(input) {
-        length += additional;
-        *input = &input[additional..];
+
+    /* If the character set contains spaces, update the position accordingly */
+    /* the if will get optimized away, since it's a constant based on the generic */
+    if Start::CONTAINS_SPACES {
+        match input.span.chars().next() {
+            Some('\n') => {
+                input.position.line += 1;
+                input.position.column = 0;
+            }
+            Some('\r') => input.position.column = 0,
+            _ => input.position.column += 1,
+        }
+    } else {
+        input.position.column += 1;
     }
-    Ok(&start[..length])
+    input.span = &input.span[length..];
+
+    /* Once at least one character is found, munch as much as possible */
+    while let Some(additional) = Rest::munch(input.span) {
+        /* Similarly, optimized of the char set does not contains spaces. */
+        if Rest::CONTAINS_SPACES {
+            match input.span.chars().next() {
+                Some('\n') => {
+                    input.position.line += 1;
+                    input.position.column = 0;
+                }
+                Some('\r') => input.position.column = 0,
+                _ => input.position.column += 1,
+            }
+        } else {
+            input.position.column += 1;
+        }
+        length += additional;
+        input.span = &input.span[additional..];
+    }
+
+    /* Restrict the span of the result to the parsed length */
+    result.span = &result.span[..length];
+
+    Ok(result)
 }
 
 /// Advance the given input string to skip any number of spaces as defined
 /// in the XML documentation: https://www.w3.org/TR/xml/#NT-S
 ///
-/// The function returns the number of character / bytes skipped.
-/// Since all space charaters are one byte, the skipped bytes and skipped chars are the same.
-pub fn skip_whitespaces(input: &mut &str) -> usize {
-    let mut result = 0;
+/// The function returns the number of character / bytes skipped in the form of a position.
+pub fn skip_whitespaces<'src>(input: &mut crate::span::Span<'src>) -> crate::span::Span<'src> {
+    let mut result = *input;
+    let mut length = 0;
     loop {
-        match input.as_bytes().first() {
-            Some(0x20 /* Space */)
-            | Some(0x09 /* Tabulation */)
-            | Some(0x0D /* New line */)
-            | Some(0x0A /* Carriage return */) => {
-                *input = &input[1..];
-                result += 1;
+        /* We could use the Spaces char set, but we prefer to unpack once to update the position */
+        match input.span.chars().next() {
+            Some('\n') => {
+                length += 1;
+                input.position.line += 1;
+                input.position.column = 0;
+                input.span = &input.span[1..];
+            }
+            Some('r') => {
+                length += 1;
+                input.position.column = 0;
+                input.span = &input.span[1..];
+            }
+            Some(' ') | Some('\t') => {
+                length += 1;
+                input.position.column += 1;
+                input.span = &input.span[1..];
             }
             _ => break,
         }
     }
+
+    result.span = &result.span[..length];
+
     result
 }
 
 /// Skip the whitespaces, expecting to find at least one.
 ///
 /// If no whitespaces are encountered, will return an error.
-pub fn expect_whitespaces<'src>(input: &mut &'src str) -> Result<usize, XmlParsingError<'src>> {
-    match skip_whitespaces(input) {
-        0 => Err(XmlParsingError::unexpected(&[std::any::type_name::<Spaces>()], input)),
-        more => Ok(more),
+pub fn expect_whitespaces<'src>(input: &mut crate::span::Span<'src>) -> Result<crate::span::Span<'src>, XmlParsingError<'src>> {
+    let span = skip_whitespaces(input);
+    if span.pos() == crate::span::Position::ZERO {
+        Err(XmlParsingError::unexpected(&[Spaces::NAME], *input))
+    } else {
+        Ok(span)
     }
 }
 
 /// Expects a fixed byte sequence, or throws an error.
-pub fn expect_bytes<'src>(input: &mut &'src str, expected: &'static str) -> Result<(), XmlParsingError<'src>> {
-    *input = input
-        .strip_prefix(expected)
-        .ok_or_else(|| XmlParsingError::unexpected(&[expected], input))?;
-    Ok(())
+pub fn expect_bytes<'src>(input: &mut crate::span::Span<'src>, expected: &'static str) -> Result<(), XmlParsingError<'src>> {
+    match input.span.strip_prefix(expected) {
+        Some(stripped) => {
+            input.span = stripped;
+            input.position.column += expected.chars().count();
+            Ok(())
+        }
+        None => Err(XmlParsingError::unexpected(&[expected], *input)),
+    }
 }
 
 /// Expect the "XML" literal, where any of the three letters can be either uppercased or lowercased.
-pub fn is_litteral_xml(input: &str) -> bool {
-    let bytes = input.as_bytes();
+pub fn expect_not_xml(input: crate::span::Span) -> Result<(), XmlParsingError> {
+    let bytes = input.span.as_bytes();
     if bytes.len() != 3 {
-        return false;
+        return Ok(());
     }
     match bytes[..3] {
-        [0x58 | 0x78, 0x4D | 0x6D, 0x4C | 0x6C] => true,
-        _ => false,
+        [0x58 | 0x78, 0x4D | 0x6D, 0x4C | 0x6C] => Err(XmlParsingError::invalid_target(input)),
+        _ => Ok(()),
     }
 }

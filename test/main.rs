@@ -1,5 +1,6 @@
 //! Run the offical [XML test suite](https://www.w3.org/XML/Test/).
 
+mod result;
 mod test;
 mod test_declaration;
 mod utils;
@@ -21,11 +22,15 @@ fn main() {
     /* The test cases are defined in the doc type int data set */
     let doctype_decl = match test_suite_conf.prolog.doc_type_decl {
         Some(doctype) => doctype,
-        None => utils::fatal_error("No doctype declaration found in test suite"),
+        None => utils::fatal_error(&format!(
+            "No doctype declaration found in test suite at {TEST_SUITE_LOC}/xmlconf.xml"
+        )),
     };
     let int_subset = match doctype_decl.int_subset {
         Some(subset) => subset,
-        None => utils::fatal_error("No int subset in doctype"),
+        None => utils::fatal_error(&format!(
+            "No int subset in doctype in test suite at {TEST_SUITE_LOC}/xmlconf.xml"
+        )),
     };
 
     let test_declarations = test_declaration::TestDeclaration::test_declarations_from_int_subset(&int_subset);

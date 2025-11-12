@@ -13,7 +13,10 @@ impl<'src, 'tc_decl> Test<'src, 'tc_decl> {
     ) -> Vec<Self> {
         match element {
             xml::Element::EmptyElemTag(_) => {
-                fatal_error("Unexpected empty test suite");
+                fatal_error(&format!(
+                    "Unexpected empty test suite at {}/xmlconf.xml",
+                    super::TEST_SUITE_LOC
+                ));
             }
             xml::Element::Element { s_tag, content, .. } => {
                 if &*s_tag.name != "TESTSUITE" {
