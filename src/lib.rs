@@ -800,12 +800,12 @@ impl<'src> XmlElement<'src> for DoctypeDecl<'src> {
 ///
 /// https://www.w3.org/TR/xml/#NT-DeclSep
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DeclSeparator<'src> {
+pub enum DeclSep<'src> {
     PEReference(PEReference<'src>),
     Spaces(Spaces<'src>),
 }
 
-impl<'src> XmlElement<'src> for DeclSeparator<'src> {
+impl<'src> XmlElement<'src> for DeclSep<'src> {
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         if input.str().starts_with(PEReference::OPENING_TAG) {
             Ok(Self::PEReference(PEReference::parse(input)?))
@@ -852,7 +852,7 @@ impl<'src> XmlElement<'src> for IntSubset<'src> {
             match input.first_char() {
                 /* Spaces or "%" make a decl separator */
                 Some(' ') | Some('\t') | Some('\r') | Some('\n') | Some('%') => {
-                    elements.push(IntSubsetElement::DeclSep(DeclSeparator::parse(input)?))
+                    elements.push(IntSubsetElement::DeclSep(DeclSep::parse(input)?))
                 }
                 /* "<" are the start of a markup declaration */
                 Some('<') => elements.push(IntSubsetElement::MarkupDecl(MarkupDecl::parse(input)?)),
@@ -876,10 +876,15 @@ impl<'src> XmlElement<'src> for IntSubset<'src> {
     }
 }
 
+/// [28ba] - Int Subset Element
+///
+/// Element in the Int Subset
+///
+/// https://www.w3.org/TR/xml/#NT-intSubset
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum IntSubsetElement<'src> {
     MarkupDecl(MarkupDecl<'src>),
-    DeclSep(DeclSeparator<'src>),
+    DeclSep(DeclSep<'src>),
 }
 
 /// [29] - Markup Declaration
@@ -980,11 +985,7 @@ impl<'src> XmlElement<'src> for SDDecl {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Element<'src> {
     EmptyElemTag(EmptyElemTag<'src>),
-    Element {
-        s_tag: STag<'src>,
-        content: Content<'src>,
-        e_tag: ETag<'src>,
-    },
+    Element(NonEmptyElement<'src>),
 }
 
 impl<'src> Element<'src> {
@@ -1027,7 +1028,7 @@ impl<'src> XmlElement<'src> for Element<'src> {
             Ok(s_tag) => {
                 let content = Content::parse(input)?;
                 let e_tag = ETag::parse(input)?;
-                Ok(Self::Element { s_tag, content, e_tag })
+                Ok(Self::Element(NonEmptyElement { s_tag, content, e_tag }))
             }
             Err(empty_elem_tag) => Ok(Self::EmptyElemTag(empty_elem_tag)),
         }
@@ -1035,7 +1036,7 @@ impl<'src> XmlElement<'src> for Element<'src> {
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self {
             Self::EmptyElemTag(empty) => empty.write(output),
-            Self::Element { s_tag, content, e_tag } => {
+            Self::Element(NonEmptyElement { s_tag, content, e_tag }) => {
                 s_tag.write(output)?;
                 content.write(output)?;
                 e_tag.write(output)?;
@@ -1043,6 +1044,18 @@ impl<'src> XmlElement<'src> for Element<'src> {
             }
         }
     }
+}
+
+/// [39a] - Non Empty Element
+///
+/// Element that is not an EmptyElement
+///
+/// https://www.w3.org/TR/xml/#NT-element
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NonEmptyElement<'src> {
+    s_tag: STag<'src>,
+    content: Content<'src>,
+    e_tag: ETag<'src>,
 }
 
 /// [40] - Start Tag
@@ -1226,6 +1239,11 @@ impl<'src> XmlElement<'src> for Content<'src> {
     }
 }
 
+/// [43a] - Content Element
+///
+/// Element in the Content list
+///
+/// https://www.w3.org/TR/xml/#NT-content
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ContentElement<'src> {
     Element(Element<'src>),
@@ -1326,20 +1344,21 @@ impl<'src> XmlElement<'src> for ElementDecl<'src> {
 /// https://www.w3.org/TR/xml/#NT-contentspec
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ContentSpec<'src> {
-    Empty,
-    Any,
+    Empty(EmptyContentSpec),
+    Any(AnyContentSpec),
     Mixed(),
     Children(ElementContentChildren<'src>),
 }
 
 impl<'src> XmlElement<'src> for ContentSpec<'src> {
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
+        let position = input.pos();
         if let Some(prefixed) = input.strip_prefix("EMPTY") {
             *input = prefixed;
-            Ok(Self::Empty)
+            Ok(Self::Empty(EmptyContentSpec { position }))
         } else if let Some(prefixed) = input.strip_prefix("ANY") {
             *input = prefixed;
-            Ok(Self::Any)
+            Ok(Self::Any(AnyContentSpec { position }))
         } else {
             // Fixme
             unimplemented!()
@@ -1347,12 +1366,32 @@ impl<'src> XmlElement<'src> for ContentSpec<'src> {
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self {
-            ContentSpec::Empty => output.write_all("EMPTY".as_bytes()),
-            ContentSpec::Any => output.write_all("ANY".as_bytes()),
+            ContentSpec::Empty(_) => output.write_all("EMPTY".as_bytes()),
+            ContentSpec::Any(_) => output.write_all("ANY".as_bytes()),
             ContentSpec::Mixed() => unimplemented!(),
             ContentSpec::Children(children) => children.write(output),
         }
     }
+}
+
+/// [46a] - Empty Content Specification
+///
+/// The "EMPTY" Content Specification
+///
+/// https://www.w3.org/TR/xml/#NT-contentspec
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EmptyContentSpec {
+    position: span::Position,
+}
+
+/// [46b] - Any Content Specification
+///
+/// The "ANY" Content Specification
+///
+/// https://www.w3.org/TR/xml/#NT-contentspec
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AnyContentSpec {
+    position: span::Position,
 }
 
 /// [47] - Children
@@ -2378,15 +2417,9 @@ impl<'src> XmlElement<'src> for EncodingDecl<'src> {
 ///
 /// https://www.w3.org/TR/xml/#NT-NotationDecl
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum NotationDecl<'src> {
-    ExternalID {
-        name: Name<'src>,
-        external_id: ExternalID<'src>,
-    },
-    PublicID {
-        name: Name<'src>,
-        public_id: PublicID<'src>,
-    },
+pub struct NotationDecl<'src> {
+    name: Name<'src>,
+    id: NotationDeclID<'src>,
 }
 
 impl<'src> NotationDecl<'src> {
@@ -2404,29 +2437,44 @@ impl<'src> XmlElement<'src> for NotationDecl<'src> {
             let external_id = ExternalID::parse(input)?;
             skip_whitespaces(input);
             expect_bytes(input, Self::CLOSING_TAG)?;
-            Ok(Self::ExternalID { name, external_id })
+            Ok(Self {
+                name,
+                id: NotationDeclID::ExternalID(external_id),
+            })
         } else {
             let public_id = PublicID::parse(input)?;
             skip_whitespaces(input);
             expect_bytes(input, Self::CLOSING_TAG)?;
-            Ok(Self::PublicID { name, public_id })
+            Ok(Self {
+                name,
+                id: NotationDeclID::PublicID(public_id),
+            })
         }
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
-        match self {
-            Self::ExternalID { name, external_id } => {
-                write!(output, "{} {} ", Self::OPENING_TAG, name)?;
+        write!(output, "{} {} ", Self::OPENING_TAG, self.name)?;
+        match &self.id {
+            NotationDeclID::ExternalID(external_id) => {
                 external_id.write(output)?;
-                write!(output, " {}", Self::CLOSING_TAG)?;
             }
-            Self::PublicID { name, public_id } => {
-                write!(output, "{} {} ", Self::OPENING_TAG, name)?;
+            NotationDeclID::PublicID(public_id) => {
                 public_id.write(output)?;
-                write!(output, " {}", Self::CLOSING_TAG)?;
             }
         }
+        write!(output, " {}", Self::CLOSING_TAG)?;
         Ok(())
     }
+}
+
+/// [82a] - Notation Declaration ID
+///
+/// Either a PublicID, or an ExternalID.
+///
+/// https://www.w3.org/TR/xml/#NT-NotationDecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum NotationDeclID<'src> {
+    ExternalID(ExternalID<'src>),
+    PublicID(PublicID<'src>),
 }
 
 /// [83] - Public ID

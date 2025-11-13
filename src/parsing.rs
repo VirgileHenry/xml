@@ -81,7 +81,13 @@ impl CharacterSet for NameChar {
             | '\u{3001}'..='\u{D7FF}'
             | '\u{F900}'..='\u{FDCF}'
             | '\u{FDF0}'..='\u{FFFD}'
-            | '\u{10000}'..='\u{EFFFF}' => Some(next_char.len_utf8()),
+            | '\u{10000}'..='\u{EFFFF}'
+            | '-'
+            | '.'
+            | '0'..='9'
+            | '\u{B7}'
+            | '\u{0300}'..='\u{036F}'
+            | '\u{203F}'..='\u{2040}' => Some(next_char.len_utf8()),
             _ => None,
         }
     }
@@ -113,13 +119,7 @@ impl CharacterSet for NameStartChar {
             | '\u{3001}'..='\u{D7FF}'
             | '\u{F900}'..='\u{FDCF}'
             | '\u{FDF0}'..='\u{FFFD}'
-            | '\u{10000}'..='\u{EFFFF}'
-            | '-'
-            | '.'
-            | '0'..='9'
-            | '\u{B7}'
-            | '\u{0300}'..='\u{036F}'
-            | '\u{203F}'..='\u{2040}' => Some(next_char.len_utf8()),
+            | '\u{10000}'..='\u{EFFFF}' => Some(next_char.len_utf8()),
             _ => None,
         }
     }
