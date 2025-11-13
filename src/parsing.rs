@@ -340,7 +340,7 @@ pub fn skip_whitespaces<'src>(input: &mut crate::span::Span<'src>) -> crate::spa
                 input.position.column = 0;
                 input.span = &input.span[1..];
             }
-            Some('r') => {
+            Some('\r') => {
                 length += 1;
                 input.position.column = 0;
                 input.span = &input.span[1..];

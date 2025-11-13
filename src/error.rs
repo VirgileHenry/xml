@@ -1,5 +1,9 @@
 use std::fmt::Debug;
 
+pub fn name_of<T>() -> &'static str {
+    std::any::type_name::<T>().split("::").last().unwrap_or("Unknown")
+}
+
 #[derive(Debug)]
 pub enum XmlParsingError<'src> {
     Unexpected {
@@ -29,9 +33,8 @@ impl<'src> XmlParsingError<'src> {
     }
 
     pub fn unclosed<T>(opened_at: crate::span::Span<'src>, closing_tag: &'static str) -> Self {
-        let elem = std::any::type_name::<T>().split("::").last().unwrap_or("Unknown");
         XmlParsingError::Unclosed {
-            elem,
+            elem: name_of::<T>(),
             opened_at,
             closing_tag,
         }
