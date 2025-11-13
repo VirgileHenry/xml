@@ -366,7 +366,7 @@ impl<'src> XmlElement<'src> for SystemLiteral<'src> {
         let quote = QuoteKind::parse(input)?;
         let next_quote_pos = input
             .find(quote.to_char())
-            .ok_or_else(|| XmlParsingError::unclosed::<Self>(quote))?;
+            .ok_or_else(|| XmlParsingError::unclosed::<Self>(input, quote))?;
         let (literal, rest) = input.split_at(next_quote_pos);
         // fixme: check literal is legal characters only
         *input = &rest[1..];

@@ -37,6 +37,24 @@ impl<'src> Span<'src> {
         Span { position, span }
     }
 
+    pub(crate) fn split<T>(&self, pat: &'static str) -> Result<(Self, Self), crate::error::XmlParsingError<'src>> {
+        let pattern_index = self
+            .span
+            .find(pat)
+            .ok_or_else(|| crate::error::XmlParsingError::unclosed::<T>(*self, pat))?;
+        let (first, rest) = self.span.split_at(pattern_index);
+        Ok((
+            Self {
+                position: self.position,
+                span: first,
+            },
+            Self {
+                position: self.position,
+                span: first,
+            },
+        ))
+    }
+
     /// Get the inner string from the span.
     pub fn str(&self) -> &'src str {
         self.span
