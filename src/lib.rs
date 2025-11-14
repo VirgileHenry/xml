@@ -104,6 +104,7 @@ impl std::fmt::Display for RepetitionOperator {
 }
 
 trait XmlElement<'src>: Sized {
+    fn position(&self) -> span::Position;
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>>;
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()>;
 }
@@ -125,6 +126,9 @@ impl<'src> Document<'src> {
 }
 
 impl<'src> XmlElement<'src> for Document<'src> {
+    fn position(&self) -> span::Position {
+        span::Position::ZERO
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         let prolog = Prolog::parse(input)?;
         let element = Element::parse(input)?;
@@ -132,7 +136,7 @@ impl<'src> XmlElement<'src> for Document<'src> {
         let mut misc = Vec::new();
         loop {
             skip_whitespaces(input);
-            if input.str().starts_with(Comment::OPENING_TAG) || input.str().starts_with(PI::OPENING_TAG) {
+            if input.str().starts_with(Comment::OPENING_TAG) || input.str().starts_with(Pi::OPENING_TAG) {
                 misc.push(Miscellaneous::parse(input)?);
             } else {
                 break;
@@ -161,6 +165,9 @@ impl<'src> XmlElement<'src> for Document<'src> {
 pub struct Name<'src>(span::Span<'src>);
 
 impl<'src> XmlElement<'src> for Name<'src> {
+    fn position(&self) -> span::Position {
+        self.0.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         Ok(Self(expect_string::<NameStartChar, NameChar>(input)?))
     }
@@ -189,6 +196,9 @@ impl<'src> std::fmt::Display for Name<'src> {
 pub struct NmToken<'src>(span::Span<'src>);
 
 impl<'src> XmlElement<'src> for NmToken<'src> {
+    fn position(&self) -> span::Position {
+        self.0.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         Ok(Self(expect_string::<NameChar, NameChar>(input)?))
     }
@@ -215,13 +225,19 @@ impl<'src> std::fmt::Display for NmToken<'src> {
 /// https://www.w3.org/TR/xml/#NT-EntityValue
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EntityValue<'src> {
+    pub position: span::Position,
     pub literal: Vec<EntityValueElem<'src>>,
     pub quote: QuoteKind,
 }
 
 impl<'src> XmlElement<'src> for EntityValue<'src> {
+    fn position(&self) -> span::Position {
+        self.position
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         let prev_input = *input;
+
+        let position = input.pos();
         let quote = QuoteKind::parse(input)?;
 
         let mut literal = Vec::new();
@@ -255,7 +271,11 @@ impl<'src> XmlElement<'src> for EntityValue<'src> {
             },
         }
 
-        Ok(Self { literal, quote })
+        Ok(Self {
+            position,
+            literal,
+            quote,
+        })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         output.write_all(self.quote.to_str().as_bytes())?;
@@ -303,13 +323,19 @@ impl<'src> std::ops::Deref for CharSlice<'src> {
 /// https://www.w3.org/TR/xml/#NT-AttValue
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AttValue<'src> {
+    pub position: span::Position,
     pub literal: Vec<AttValueElem<'src>>,
     pub quote: QuoteKind,
 }
 
 impl<'src> XmlElement<'src> for AttValue<'src> {
+    fn position(&self) -> span::Position {
+        self.position
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         let prev_input = *input;
+
+        let position = input.pos();
         let quote = QuoteKind::parse(input)?;
 
         let mut literal = Vec::new();
@@ -342,7 +368,11 @@ impl<'src> XmlElement<'src> for AttValue<'src> {
         }
         expect_bytes(input, quote.to_str())?;
 
-        Ok(Self { literal, quote })
+        Ok(Self {
+            position,
+            literal,
+            quote,
+        })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         output.write_all(self.quote.to_str().as_bytes())?;
@@ -392,6 +422,9 @@ pub struct SystemLiteral<'src> {
 }
 
 impl<'src> XmlElement<'src> for SystemLiteral<'src> {
+    fn position(&self) -> span::Position {
+        self.literal.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         let quote = QuoteKind::parse(input)?;
         let (literal, rest) = input.split_span::<Self>(quote.to_str())?;
@@ -413,6 +446,9 @@ pub struct PubidLiteral<'src> {
 }
 
 impl<'src> XmlElement<'src> for PubidLiteral<'src> {
+    fn position(&self) -> span::Position {
+        self.literal.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         let quote = QuoteKind::parse(input)?;
         let literal = expect_string::<PubidChar, PubidChar>(input)?;
@@ -431,6 +467,9 @@ impl<'src> XmlElement<'src> for PubidLiteral<'src> {
 pub struct CharData<'src>(span::Span<'src>);
 
 impl<'src> XmlElement<'src> for CharData<'src> {
+    fn position(&self) -> span::Position {
+        self.0.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         Ok(Self(expect_string::<CharDataCharSet, CharDataCharSet>(input)?))
     }
@@ -460,6 +499,9 @@ impl<'src> Comment<'src> {
 }
 
 impl<'src> XmlElement<'src> for Comment<'src> {
+    fn position(&self) -> span::Position {
+        self.comment.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         skip_whitespaces(input);
         expect_bytes(input, Self::OPENING_TAG)?;
@@ -477,17 +519,20 @@ impl<'src> XmlElement<'src> for Comment<'src> {
 ///
 /// https://www.w3.org/TR/xml/#NT-PI
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct PI<'src> {
+pub struct Pi<'src> {
     pub target: Name<'src>,
     pub instruction: Option<span::Span<'src>>,
 }
 
-impl<'src> PI<'src> {
+impl<'src> Pi<'src> {
     const OPENING_TAG: &'static str = "<?";
     const CLOSING_TAG: &'static str = "?>";
 }
 
-impl<'src> XmlElement<'src> for PI<'src> {
+impl<'src> XmlElement<'src> for Pi<'src> {
+    fn position(&self) -> span::Position {
+        self.target.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         let target = Name::parse(input)?;
@@ -531,6 +576,9 @@ impl<'src> CDSect<'src> {
 }
 
 impl<'src> XmlElement<'src> for CDSect<'src> {
+    fn position(&self) -> span::Position {
+        self.data.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         /* The usage of find is required, as the data can be anything as per spec */
@@ -554,6 +602,9 @@ pub struct Prolog<'src> {
 }
 
 impl<'src> XmlElement<'src> for Prolog<'src> {
+    fn position(&self) -> span::Position {
+        span::Position::ZERO
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         let declaration = if input.str().starts_with(XmlDeclaration::OPENING_TAG) {
             Some(XmlDeclaration::parse(input)?)
@@ -564,7 +615,7 @@ impl<'src> XmlElement<'src> for Prolog<'src> {
         let mut misc = Vec::new();
         loop {
             skip_whitespaces(input);
-            if input.str().starts_with(Comment::OPENING_TAG) || input.str().starts_with(PI::OPENING_TAG) {
+            if input.str().starts_with(Comment::OPENING_TAG) || input.str().starts_with(Pi::OPENING_TAG) {
                 misc.push(Miscellaneous::parse(input)?);
             } else {
                 break;
@@ -579,7 +630,7 @@ impl<'src> XmlElement<'src> for Prolog<'src> {
 
         loop {
             skip_whitespaces(input);
-            if input.str().starts_with(Comment::OPENING_TAG) || input.str().starts_with(PI::OPENING_TAG) {
+            if input.str().starts_with(Comment::OPENING_TAG) || input.str().starts_with(Pi::OPENING_TAG) {
                 misc.push(Miscellaneous::parse(input)?);
             } else {
                 break;
@@ -622,6 +673,9 @@ impl<'src> XmlDeclaration<'src> {
 }
 
 impl<'src> XmlElement<'src> for XmlDeclaration<'src> {
+    fn position(&self) -> span::Position {
+        self.version.position
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         skip_whitespaces(input);
         expect_bytes(input, Self::OPENING_TAG)?;
@@ -674,15 +728,22 @@ impl<'src> XmlElement<'src> for XmlDeclaration<'src> {
 /// https://www.w3.org/TR/xml/#NT-VersionInfo
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VersionInfo {
+    pub position: span::Position,
     pub major: usize,
     pub minor: usize,
     pub quote: QuoteKind,
 }
 
 impl<'src> XmlElement<'src> for VersionInfo {
+    fn position(&self) -> span::Position {
+        self.position
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_whitespaces(input)?;
+
+        let position = input.pos();
         expect_bytes(input, "version")?;
+
         skip_whitespaces(input);
         expect_bytes(input, "=")?;
         skip_whitespaces(input);
@@ -703,7 +764,12 @@ impl<'src> XmlElement<'src> for VersionInfo {
 
         expect_bytes(input, quote.to_str())?;
 
-        Ok(Self { major, minor, quote })
+        Ok(Self {
+            position,
+            major,
+            minor,
+            quote,
+        })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         write!(output, " version={}{}.{}{}", self.quote, self.major, self.minor, self.quote)
@@ -716,15 +782,21 @@ impl<'src> XmlElement<'src> for VersionInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Miscellaneous<'src> {
     Comment(Comment<'src>),
-    PI(PI<'src>),
+    Pi(Pi<'src>),
 }
 
 impl<'src> XmlElement<'src> for Miscellaneous<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::Comment(comment) => comment.position(),
+            Self::Pi(pi) => pi.position(),
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         if input.str().starts_with(Comment::OPENING_TAG) {
             Ok(Miscellaneous::Comment(Comment::parse(input)?))
-        } else if input.str().starts_with(PI::OPENING_TAG) {
-            Ok(Miscellaneous::PI(PI::parse(input)?))
+        } else if input.str().starts_with(Pi::OPENING_TAG) {
+            Ok(Miscellaneous::Pi(Pi::parse(input)?))
         } else {
             Err(XmlParsingError::unexpected(&["<!--", "<?"], *input))
         }
@@ -732,7 +804,7 @@ impl<'src> XmlElement<'src> for Miscellaneous<'src> {
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self {
             Self::Comment(comment) => comment.write(output),
-            Self::PI(pi) => pi.write(output),
+            Self::Pi(pi) => pi.write(output),
         }
     }
 }
@@ -753,6 +825,9 @@ impl<'src> DoctypeDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for DoctypeDecl<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         skip_whitespaces(input);
@@ -806,6 +881,12 @@ pub enum DeclSep<'src> {
 }
 
 impl<'src> XmlElement<'src> for DeclSep<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::PEReference(pe_ref) => pe_ref.position(),
+            Self::Spaces(spaces) => spaces.0.pos(),
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         if input.str().starts_with(PEReference::OPENING_TAG) {
             Ok(Self::PEReference(PEReference::parse(input)?))
@@ -841,11 +922,16 @@ impl<'src> std::ops::Deref for Spaces<'src> {
 /// https://www.w3.org/TR/xml/#NT-intSubset
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IntSubset<'src> {
+    pub position: span::Position,
     pub elements: Vec<IntSubsetElement<'src>>,
 }
 
 impl<'src> XmlElement<'src> for IntSubset<'src> {
+    fn position(&self) -> span::Position {
+        self.position
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
+        let position = input.pos();
         let mut elements = Vec::new();
 
         loop {
@@ -863,7 +949,7 @@ impl<'src> XmlElement<'src> for IntSubset<'src> {
             }
         }
 
-        Ok(Self { elements })
+        Ok(Self { position, elements })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         for element in self.elements.iter() {
@@ -896,11 +982,21 @@ pub enum MarkupDecl<'src> {
     AttListDecl(AttListDecl<'src>),
     EntityDecl(EntityDecl<'src>),
     NotationDecl(NotationDecl<'src>),
-    PI(PI<'src>),
+    Pi(Pi<'src>),
     Comment(Comment<'src>),
 }
 
 impl<'src> XmlElement<'src> for MarkupDecl<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::ElementDecl(element) => element.position(),
+            Self::AttListDecl(att_list_decl) => att_list_decl.position(),
+            Self::EntityDecl(decl) => decl.position(),
+            Self::NotationDecl(decl) => decl.position(),
+            Self::Pi(pi) => pi.position(),
+            Self::Comment(comment) => comment.position(),
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         if input.str().starts_with(ElementDecl::OPENING_TAG) {
             Ok(Self::ElementDecl(ElementDecl::parse(input)?))
@@ -910,8 +1006,8 @@ impl<'src> XmlElement<'src> for MarkupDecl<'src> {
             Ok(Self::EntityDecl(EntityDecl::parse(input)?))
         } else if input.str().starts_with(NotationDecl::OPENING_TAG) {
             Ok(Self::NotationDecl(NotationDecl::parse(input)?))
-        } else if input.str().starts_with(PI::OPENING_TAG) {
-            Ok(Self::PI(PI::parse(input)?))
+        } else if input.str().starts_with(Pi::OPENING_TAG) {
+            Ok(Self::Pi(Pi::parse(input)?))
         } else if input.str().starts_with(Comment::OPENING_TAG) {
             Ok(Self::Comment(Comment::parse(input)?))
         } else {
@@ -920,7 +1016,7 @@ impl<'src> XmlElement<'src> for MarkupDecl<'src> {
                 AttListDecl::OPENING_TAG,
                 EntityDecl::OPENING_TAG,
                 NotationDecl::OPENING_TAG,
-                PI::OPENING_TAG,
+                Pi::OPENING_TAG,
                 Comment::OPENING_TAG,
             ];
             Err(XmlParsingError::unexpected(expected, *input))
@@ -932,7 +1028,7 @@ impl<'src> XmlElement<'src> for MarkupDecl<'src> {
             Self::AttListDecl(att_list_decl) => att_list_decl.write(output),
             Self::EntityDecl(decl) => decl.write(output),
             Self::NotationDecl(decl) => decl.write(output),
-            Self::PI(pi) => pi.write(output),
+            Self::Pi(pi) => pi.write(output),
             Self::Comment(comment) => comment.write(output),
         }
     }
@@ -943,13 +1039,19 @@ impl<'src> XmlElement<'src> for MarkupDecl<'src> {
 /// https://www.w3.org/TR/xml/#NT-SDDecl
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SDDecl {
+    pub position: span::Position,
     pub standalone: bool,
     pub quote: QuoteKind,
 }
 
 impl<'src> XmlElement<'src> for SDDecl {
+    fn position(&self) -> span::Position {
+        self.position
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_whitespaces(input)?;
+
+        let position = input.pos();
         expect_bytes(input, "standalone")?;
 
         skip_whitespaces(input);
@@ -968,7 +1070,11 @@ impl<'src> XmlElement<'src> for SDDecl {
             return Err(XmlParsingError::unexpected(&["yes", "no"], *input));
         };
         expect_bytes(input, quote.to_str())?;
-        Ok(Self { standalone, quote })
+        Ok(Self {
+            position,
+            standalone,
+            quote,
+        })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         let standalone = match self.standalone {
@@ -1023,6 +1129,12 @@ impl<'src> Element<'src> {
 }
 
 impl<'src> XmlElement<'src> for Element<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::EmptyElemTag(empty) => empty.position(),
+            Self::Element(elem) => elem.s_tag.position(),
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         match Self::parse_start_or_empty(input)? {
             Ok(s_tag) => {
@@ -1073,6 +1185,9 @@ impl<'src> STag<'src> {
 }
 
 impl<'src> XmlElement<'src> for STag<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         let name = Name::parse(input)?;
@@ -1116,6 +1231,9 @@ pub struct Attribute<'src> {
 }
 
 impl<'src> XmlElement<'src> for Attribute<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         let name = Name::parse(input)?;
         skip_whitespaces(input);
@@ -1145,6 +1263,9 @@ impl<'src> ETag<'src> {
 }
 
 impl<'src> XmlElement<'src> for ETag<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         let name = Name::parse(input)?;
@@ -1163,13 +1284,18 @@ impl<'src> XmlElement<'src> for ETag<'src> {
 /// https://www.w3.org/TR/xml/#NT-content
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Content<'src> {
+    pub position: span::Position,
     pub first_chars: Option<CharData<'src>>,
     pub content: Vec<(ContentElement<'src>, Option<CharData<'src>>)>,
 }
 
 impl<'src> XmlElement<'src> for Content<'src> {
+    fn position(&self) -> span::Position {
+        self.position
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
-        let first = if input.str().starts_with(ContentElement::OPENING_CHARS) {
+        let position = input.pos();
+        let first_chars = if input.str().starts_with(ContentElement::OPENING_CHARS) {
             None
         } else {
             Some(CharData::parse(input)?)
@@ -1184,8 +1310,8 @@ impl<'src> XmlElement<'src> for Content<'src> {
             /* Otherwise, we have remaining content to parse! */
             let element = if input.str().starts_with(CDSect::OPENING_TAG) {
                 ContentElement::CDSect(CDSect::parse(input)?)
-            } else if input.str().starts_with(PI::OPENING_TAG) {
-                ContentElement::PI(PI::parse(input)?)
+            } else if input.str().starts_with(Pi::OPENING_TAG) {
+                ContentElement::Pi(Pi::parse(input)?)
             } else if input.str().starts_with(Comment::OPENING_TAG) {
                 ContentElement::Comment(Comment::parse(input)?)
             } else if input.str().starts_with(Element::OPENING_TAG) {
@@ -1196,7 +1322,7 @@ impl<'src> XmlElement<'src> for Content<'src> {
                 return Err(XmlParsingError::unexpected(
                     &[
                         CDSect::OPENING_TAG,
-                        PI::OPENING_TAG,
+                        Pi::OPENING_TAG,
                         Comment::OPENING_TAG,
                         Element::OPENING_TAG,
                         Reference::OPENING_TAG,
@@ -1215,7 +1341,8 @@ impl<'src> XmlElement<'src> for Content<'src> {
         }
 
         Ok(Self {
-            first_chars: first,
+            position,
+            first_chars,
             content,
         })
     }
@@ -1228,7 +1355,7 @@ impl<'src> XmlElement<'src> for Content<'src> {
                 ContentElement::Element(elem) => elem.write(output)?,
                 ContentElement::Reference(reference) => reference.write(output)?,
                 ContentElement::CDSect(cd_sect) => cd_sect.write(output)?,
-                ContentElement::PI(pi) => pi.write(output)?,
+                ContentElement::Pi(pi) => pi.write(output)?,
                 ContentElement::Comment(comment) => comment.write(output)?,
             }
             if let Some(chars) = chars {
@@ -1249,7 +1376,7 @@ pub enum ContentElement<'src> {
     Element(Element<'src>),
     Reference(Reference<'src>),
     CDSect(CDSect<'src>),
-    PI(PI<'src>),
+    Pi(Pi<'src>),
     Comment(Comment<'src>),
 }
 
@@ -1274,6 +1401,9 @@ impl<'src> EmptyElemTag<'src> {
 }
 
 impl<'src> XmlElement<'src> for EmptyElemTag<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         let name = Name::parse(input)?;
@@ -1322,6 +1452,9 @@ impl<'src> ElementDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for ElementDecl<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         expect_whitespaces(input)?;
@@ -1344,31 +1477,45 @@ impl<'src> XmlElement<'src> for ElementDecl<'src> {
 /// https://www.w3.org/TR/xml/#NT-contentspec
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ContentSpec<'src> {
-    Empty(EmptyContentSpec),
-    Any(AnyContentSpec),
-    Mixed(),
-    Children(ElementContentChildren<'src>),
+    Empty(ContentSpecEmpty),
+    Any(ContentSpecAny),
+    Mixed(Mixed<'src>),
+    Children(Children<'src>),
 }
 
 impl<'src> XmlElement<'src> for ContentSpec<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            ContentSpec::Empty(empty) => empty.position,
+            ContentSpec::Any(any) => any.position,
+            ContentSpec::Mixed(mixed) => mixed.position(),
+            ContentSpec::Children(children) => children.position(),
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         let position = input.pos();
         if let Some(prefixed) = input.strip_prefix("EMPTY") {
             *input = prefixed;
-            Ok(Self::Empty(EmptyContentSpec { position }))
+            Ok(Self::Empty(ContentSpecEmpty { position }))
         } else if let Some(prefixed) = input.strip_prefix("ANY") {
             *input = prefixed;
-            Ok(Self::Any(AnyContentSpec { position }))
+            Ok(Self::Any(ContentSpecAny { position }))
         } else {
-            // Fixme
-            unimplemented!()
+            let mut temp = *input;
+            expect_bytes(&mut temp, "(")?;
+            skip_whitespaces(&mut temp);
+            if temp.str().starts_with(Mixed::PCDATA_TAG) {
+                Ok(Self::Mixed(Mixed::parse(input)?))
+            } else {
+                Ok(Self::Children(Children::parse(input)?))
+            }
         }
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self {
             ContentSpec::Empty(_) => output.write_all("EMPTY".as_bytes()),
             ContentSpec::Any(_) => output.write_all("ANY".as_bytes()),
-            ContentSpec::Mixed() => unimplemented!(),
+            ContentSpec::Mixed(_) => unimplemented!(),
             ContentSpec::Children(children) => children.write(output),
         }
     }
@@ -1380,7 +1527,7 @@ impl<'src> XmlElement<'src> for ContentSpec<'src> {
 ///
 /// https://www.w3.org/TR/xml/#NT-contentspec
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct EmptyContentSpec {
+pub struct ContentSpecEmpty {
     position: span::Position,
 }
 
@@ -1390,7 +1537,7 @@ pub struct EmptyContentSpec {
 ///
 /// https://www.w3.org/TR/xml/#NT-contentspec
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AnyContentSpec {
+pub struct ContentSpecAny {
     position: span::Position,
 }
 
@@ -1398,49 +1545,52 @@ pub struct AnyContentSpec {
 ///
 /// https://www.w3.org/TR/xml/#NT-children
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ElementContentChildren<'src> {
-    Choice {
-        choice: ElementContentChoice<'src>,
-        repetition: Option<RepetitionOperator>,
-    },
-    Seq {
-        seq: ElementContentSeq<'src>,
-        repetition: Option<RepetitionOperator>,
-    },
+pub enum Children<'src> {
+    Choice(ChildrenChoice<'src>),
+    Seq(ChildrenSeq<'src>),
 }
 
-impl<'src> XmlElement<'src> for ElementContentChildren<'src> {
+impl<'src> XmlElement<'src> for Children<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::Choice(choice) => choice.position(),
+            Self::Seq(seq) => seq.position(),
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
+        let position = input.pos();
         expect_bytes(input, "(")?;
+
         skip_whitespaces(input);
-        /* Fixme: will be moved into a vec anyway ? maybe something to gain here */
+
         let mut cps = Vec::new();
-        cps.push(ElementContentParticle::parse(input)?);
+        cps.push(Cp::parse(input)?);
+
         skip_whitespaces(input);
         match input.first_char() {
             /* Closing parens right after the first elem, it's a one element sequence */
             Some(')') => {
                 input.bump();
                 let repetition = RepetitionOperator::try_parse(input);
-                Ok(Self::Seq {
-                    seq: ElementContentSeq { sequence: cps },
+                Ok(Self::Seq(ChildrenSeq {
+                    seq: Seq { position, sequence: cps },
                     repetition,
-                })
+                }))
             }
             /* A comma indicates a sequence of more than one element */
             Some(',') => loop {
                 input.bump();
                 skip_whitespaces(input);
-                cps.push(ElementContentParticle::parse(input)?);
+                cps.push(Cp::parse(input)?);
                 skip_whitespaces(input);
                 /* If we have a closing parens, terminate the sequence */
                 if input.first_char() == Some(')') {
                     input.bump();
                     let repetition = RepetitionOperator::try_parse(input);
-                    break Ok(Self::Seq {
-                        seq: ElementContentSeq { sequence: cps },
+                    break Ok(Self::Seq(ChildrenSeq {
+                        seq: Seq { position, sequence: cps },
                         repetition,
-                    });
+                    }));
                 }
                 /* Otherwise, keep munching at the sequence */
             },
@@ -1448,16 +1598,16 @@ impl<'src> XmlElement<'src> for ElementContentChildren<'src> {
             Some('|') => loop {
                 input.bump();
                 skip_whitespaces(input);
-                cps.push(ElementContentParticle::parse(input)?);
+                cps.push(Cp::parse(input)?);
                 skip_whitespaces(input);
                 /* If we have a closing parens, terminate the sequence */
                 if input.first_char() == Some(')') {
                     input.bump();
                     let repetition = RepetitionOperator::try_parse(input);
-                    break Ok(Self::Choice {
-                        choice: ElementContentChoice { choices: cps },
+                    break Ok(Self::Choice(ChildrenChoice {
+                        choice: Choice { position, choices: cps },
                         repetition,
-                    });
+                    }));
                 }
                 /* Otherwise, keep munching at the sequence */
             },
@@ -1466,14 +1616,14 @@ impl<'src> XmlElement<'src> for ElementContentChildren<'src> {
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self {
-            ElementContentChildren::Choice { choice, repetition } => {
+            Children::Choice(ChildrenChoice { choice, repetition }) => {
                 choice.write(output)?;
                 if let Some(repetition) = repetition {
                     write!(output, "{repetition}")?;
                 }
                 Ok(())
             }
-            ElementContentChildren::Seq { seq, repetition } => {
+            Children::Seq(ChildrenSeq { seq, repetition }) => {
                 seq.write(output)?;
                 if let Some(repetition) = repetition {
                     write!(output, "{repetition}")?;
@@ -1481,6 +1631,40 @@ impl<'src> XmlElement<'src> for ElementContentChildren<'src> {
                 Ok(())
             }
         }
+    }
+}
+
+/// [47a] - Children Choice
+///
+/// Children Choice variation.
+///
+/// https://www.w3.org/TR/xml/#NT-children
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ChildrenChoice<'src> {
+    choice: Choice<'src>,
+    repetition: Option<RepetitionOperator>,
+}
+
+impl<'src> ChildrenChoice<'src> {
+    fn position(&self) -> span::Position {
+        self.choice.position()
+    }
+}
+
+/// [47b] - Children Seq
+///
+/// Children Seq variation.
+///
+/// https://www.w3.org/TR/xml/#NT-children
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ChildrenSeq<'src> {
+    seq: Seq<'src>,
+    repetition: Option<RepetitionOperator>,
+}
+
+impl<'src> ChildrenSeq<'src> {
+    fn position(&self) -> span::Position {
+        self.seq.position()
     }
 }
 
@@ -1488,49 +1672,47 @@ impl<'src> XmlElement<'src> for ElementContentChildren<'src> {
 ///
 /// https://www.w3.org/TR/xml/#NT-cp
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ElementContentParticle<'src> {
-    Name {
-        name: Name<'src>,
-        repetition: Option<RepetitionOperator>,
-    },
-    Choice {
-        choice: ElementContentChoice<'src>,
-        repetition: Option<RepetitionOperator>,
-    },
-    Seq {
-        seq: ElementContentSeq<'src>,
-        repetition: Option<RepetitionOperator>,
-    },
+pub enum Cp<'src> {
+    Name(CpName<'src>),
+    Choice(CpChoice<'src>),
+    Seq(CpSeq<'src>),
 }
 
-impl<'src> XmlElement<'src> for ElementContentParticle<'src> {
+impl<'src> XmlElement<'src> for Cp<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::Name(name) => name.name.pos(),
+            Self::Choice(choice) => choice.position(),
+            Self::Seq(seq) => seq.position(),
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         if input.str().starts_with("(") {
             /* Since a content particle that is not a name is basically a children, use it and unpack */
-            Ok(match ElementContentChildren::parse(input)? {
-                ElementContentChildren::Seq { seq, repetition } => Self::Seq { seq, repetition },
-                ElementContentChildren::Choice { choice, repetition } => Self::Choice { choice, repetition },
+            Ok(match Children::parse(input)? {
+                Children::Seq(ChildrenSeq { seq, repetition }) => Self::Seq(CpSeq { seq, repetition }),
+                Children::Choice(ChildrenChoice { choice, repetition }) => Self::Choice(CpChoice { choice, repetition }),
             })
         } else {
             let name = Name::parse(input)?;
             let repetition = RepetitionOperator::try_parse(input);
-            Ok(Self::Name { name, repetition })
+            Ok(Self::Name(CpName { name, repetition }))
         }
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self {
-            ElementContentParticle::Name { name, repetition } => match repetition {
+            Cp::Name(CpName { name, repetition }) => match repetition {
                 Some(repetition) => write!(output, "{name}{repetition}"),
                 None => output.write_all(name.str().as_bytes()),
             },
-            ElementContentParticle::Choice { choice, repetition } => {
+            Cp::Choice(CpChoice { choice, repetition }) => {
                 choice.write(output)?;
                 if let Some(repetition) = repetition {
                     write!(output, "{repetition}")?;
                 }
                 Ok(())
             }
-            ElementContentParticle::Seq { seq, repetition } => {
+            Cp::Seq(CpSeq { seq, repetition }) => {
                 seq.write(output)?;
                 if let Some(repetition) = repetition {
                     write!(output, "{repetition}")?;
@@ -1541,15 +1723,65 @@ impl<'src> XmlElement<'src> for ElementContentParticle<'src> {
     }
 }
 
+/// [48a] - Content Particle Name
+///
+/// The Name variation of a Content Particle
+///
+/// https://www.w3.org/TR/xml/#NT-cp
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CpName<'src> {
+    name: Name<'src>,
+    repetition: Option<RepetitionOperator>,
+}
+
+/// [48b] - Content Particle Choice
+///
+/// The Choice variation of a Content Particle
+///
+/// https://www.w3.org/TR/xml/#NT-cp
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CpChoice<'src> {
+    choice: Choice<'src>,
+    repetition: Option<RepetitionOperator>,
+}
+
+impl<'src> CpChoice<'src> {
+    fn position(&self) -> span::Position {
+        self.choice.position()
+    }
+}
+
+/// [48c] - Content Particle Seq
+///
+/// The Seq variation of a Content Particle
+///
+/// https://www.w3.org/TR/xml/#NT-cp
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CpSeq<'src> {
+    seq: Seq<'src>,
+    repetition: Option<RepetitionOperator>,
+}
+
+impl<'src> CpSeq<'src> {
+    fn position(&self) -> span::Position {
+        self.seq.position()
+    }
+}
+
 /// [49] - Choice
 ///
 /// https://www.w3.org/TR/xml/#NT-choice
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ElementContentChoice<'src> {
-    pub choices: Vec<ElementContentParticle<'src>>,
+pub struct Choice<'src> {
+    pub position: span::Position,
+    pub choices: Vec<Cp<'src>>,
 }
 
-impl<'src> ElementContentChoice<'src> {
+impl<'src> Choice<'src> {
+    fn position(&self) -> span::Position {
+        self.position
+    }
+
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         for (i, choice) in self.choices.iter().enumerate() {
             choice.write(output)?;
@@ -1565,11 +1797,16 @@ impl<'src> ElementContentChoice<'src> {
 ///
 /// https://www.w3.org/TR/xml/#NT-seq
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ElementContentSeq<'src> {
-    pub sequence: Vec<ElementContentParticle<'src>>,
+pub struct Seq<'src> {
+    pub position: span::Position,
+    pub sequence: Vec<Cp<'src>>,
 }
 
-impl<'src> ElementContentSeq<'src> {
+impl<'src> Seq<'src> {
+    fn position(&self) -> span::Position {
+        self.position
+    }
+
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         for (i, item) in self.sequence.iter().enumerate() {
             item.write(output)?;
@@ -1579,6 +1816,95 @@ impl<'src> ElementContentSeq<'src> {
         }
         Ok(())
     }
+}
+
+/// [51] - Mixed
+///
+/// https://www.w3.org/TR/xml/#NT-Mixed
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Mixed<'src> {
+    MixedEmpty(MixedEmpty),
+    MixedContent(MixedContent<'src>),
+}
+
+impl<'src> Mixed<'src> {
+    const PCDATA_TAG: &'static str = "#PCDATA";
+}
+
+impl<'src> XmlElement<'src> for Mixed<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::MixedEmpty(mixed) => mixed.position,
+            Self::MixedContent(content) => content.position,
+        }
+    }
+    fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
+        expect_bytes(input, "(")?;
+        skip_whitespaces(input);
+
+        let position = input.pos();
+        expect_bytes(input, Self::PCDATA_TAG)?;
+        skip_whitespaces(input);
+
+        match input.first_char() {
+            /* Parse a name sequence for mixed content */
+            Some('|') => {
+                input.bump();
+                let mut names = Vec::new();
+                loop {
+                    skip_whitespaces(input);
+                    names.push(Name::parse(input)?);
+                    skip_whitespaces(input);
+                    match input.first_char() {
+                        Some(')') => break,
+                        Some('|') => input.bump(),
+                        _ => return Err(XmlParsingError::unexpected(&[")", "|"], *input)),
+                    }
+                }
+                expect_bytes(input, ")*")?;
+                Ok(Self::MixedContent(MixedContent { position, names }))
+            }
+            Some(')') => {
+                input.bump();
+                Ok(Self::MixedEmpty(MixedEmpty { position }))
+            }
+            _ => return Err(XmlParsingError::unexpected(&[")", "|"], *input)),
+        }
+    }
+    fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
+        write!(output, "( {} ", Self::PCDATA_TAG)?;
+        match self {
+            Self::MixedEmpty(_) => write!(output, ")")?,
+            Self::MixedContent(content) => {
+                for name in content.names.iter() {
+                    write!(output, "| {name} ")?;
+                }
+                write!(output, ")")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// [51a] - Mixed Empty
+///
+/// The Empty variation of the Mixed Content
+///
+/// https://www.w3.org/TR/xml/#NT-Mixed
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MixedEmpty {
+    position: span::Position,
+}
+
+/// [51b] - Mixed Content
+///
+/// The variation with content of the Mixed content
+///
+/// https://www.w3.org/TR/xml/#NT-Mixed
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MixedContent<'src> {
+    position: span::Position,
+    names: Vec<Name<'src>>,
 }
 
 /// [52] - Attribute List Declaration
@@ -1596,6 +1922,9 @@ impl<'src> AttListDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for AttListDecl<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         expect_whitespaces(input)?;
@@ -1640,6 +1969,9 @@ pub struct AttDef<'src> {
 }
 
 impl<'src> XmlElement<'src> for AttDef<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_whitespaces(input)?;
         let name = Name::parse(input)?;
@@ -1675,6 +2007,13 @@ pub enum AttributeType<'src> {
 }
 
 impl<'src> XmlElement<'src> for AttributeType<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::StringType(string) => string.position(),
+            Self::TokenizedType(tokenized) => tokenized.position(),
+            Self::EnumeratedType(enumerated) => enumerated.position(),
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         if input.str().starts_with(StringType::TAG) {
             Ok(Self::StringType(StringType::parse(input)?))
@@ -1716,16 +2055,22 @@ impl<'src> XmlElement<'src> for AttributeType<'src> {
 
 /// [55] - XmlParsingError<'src> Type
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StringType;
+pub struct StringType {
+    position: span::Position,
+}
 
 impl StringType {
     const TAG: &'static str = "CDATA";
 }
 
 impl<'src> XmlElement<'src> for StringType {
+    fn position(&self) -> span::Position {
+        self.position
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
+        let position = input.pos();
         expect_bytes(input, Self::TAG)?;
-        Ok(Self)
+        Ok(Self { position })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         write!(output, "{}", Self::TAG)
@@ -1737,13 +2082,13 @@ impl<'src> XmlElement<'src> for StringType {
 /// https://www.w3.org/TR/xml/#NT-TokenizedType
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TokenizedType {
-    Id,
-    IdRef,
-    IdRefs,
-    Entity,
-    Entities,
-    NmToken,
-    NmTokens,
+    Id(span::Position),
+    IdRef(span::Position),
+    IdRefs(span::Position),
+    Entity(span::Position),
+    Entities(span::Position),
+    NmToken(span::Position),
+    NmTokens(span::Position),
 }
 
 impl TokenizedType {
@@ -1757,28 +2102,40 @@ impl TokenizedType {
 }
 
 impl<'src> XmlElement<'src> for TokenizedType {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::Id(position) => *position,
+            Self::IdRef(position) => *position,
+            Self::IdRefs(position) => *position,
+            Self::Entity(position) => *position,
+            Self::Entities(position) => *position,
+            Self::NmToken(position) => *position,
+            Self::NmTokens(position) => *position,
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
+        let position = input.pos();
         if let Some(stripped) = input.strip_prefix(Self::ID_TAG) {
             *input = stripped;
-            Ok(Self::Id)
+            Ok(Self::Id(position))
         } else if let Some(stripped) = input.strip_prefix(Self::IDREF_TAG) {
             *input = stripped;
-            Ok(Self::IdRef)
+            Ok(Self::IdRef(position))
         } else if let Some(stripped) = input.strip_prefix(Self::IDREFS_TAG) {
             *input = stripped;
-            Ok(Self::IdRefs)
+            Ok(Self::IdRefs(position))
         } else if let Some(stripped) = input.strip_prefix(Self::ENTITY_TAG) {
             *input = stripped;
-            Ok(Self::Entity)
+            Ok(Self::Entity(position))
         } else if let Some(stripped) = input.strip_prefix(Self::ENTITIES_TAG) {
             *input = stripped;
-            Ok(Self::Entities)
+            Ok(Self::Entities(position))
         } else if let Some(stripped) = input.strip_prefix(Self::NMTOKEN_TAG) {
             *input = stripped;
-            Ok(Self::NmToken)
+            Ok(Self::NmToken(position))
         } else if let Some(stripped) = input.strip_prefix(Self::NMTOKENS_TAG) {
             *input = stripped;
-            Ok(Self::NmTokens)
+            Ok(Self::NmTokens(position))
         } else {
             Err(XmlParsingError::unexpected(
                 &[
@@ -1796,13 +2153,13 @@ impl<'src> XmlElement<'src> for TokenizedType {
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self {
-            Self::Id => write!(output, "{}", Self::ID_TAG),
-            Self::IdRef => write!(output, "{}", Self::IDREF_TAG),
-            Self::IdRefs => write!(output, "{}", Self::IDREFS_TAG),
-            Self::Entity => write!(output, "{}", Self::ENTITY_TAG),
-            Self::Entities => write!(output, "{}", Self::ENTITIES_TAG),
-            Self::NmToken => write!(output, "{}", Self::NMTOKEN_TAG),
-            Self::NmTokens => write!(output, "{}", Self::NMTOKENS_TAG),
+            Self::Id(_) => write!(output, "{}", Self::ID_TAG),
+            Self::IdRef(_) => write!(output, "{}", Self::IDREF_TAG),
+            Self::IdRefs(_) => write!(output, "{}", Self::IDREFS_TAG),
+            Self::Entity(_) => write!(output, "{}", Self::ENTITY_TAG),
+            Self::Entities(_) => write!(output, "{}", Self::ENTITIES_TAG),
+            Self::NmToken(_) => write!(output, "{}", Self::NMTOKEN_TAG),
+            Self::NmTokens(_) => write!(output, "{}", Self::NMTOKENS_TAG),
         }
     }
 }
@@ -1812,21 +2169,27 @@ impl<'src> XmlElement<'src> for TokenizedType {
 /// https://www.w3.org/TR/xml/#NT-EnumeratedType
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EnumeratedType<'src> {
-    Notation(NotationType<'src>),
+    NotationType(NotationType<'src>),
     Enumeration(Enumeration<'src>),
 }
 
 impl<'src> XmlElement<'src> for EnumeratedType<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::NotationType(notation) => notation.position(),
+            Self::Enumeration(enumeration) => enumeration.position(),
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         if input.str().starts_with(NotationType::OPENING_TAG) {
-            Ok(Self::Notation(NotationType::parse(input)?))
+            Ok(Self::NotationType(NotationType::parse(input)?))
         } else {
             Ok(Self::Enumeration(Enumeration::parse(input)?))
         }
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self {
-            Self::Notation(notation) => notation.write(output),
+            Self::NotationType(notation) => notation.write(output),
             Self::Enumeration(enumeration) => enumeration.write(output),
         }
     }
@@ -1846,6 +2209,9 @@ impl<'src> NotationType<'src> {
 }
 
 impl<'src> XmlElement<'src> for NotationType<'src> {
+    fn position(&self) -> span::Position {
+        self.first.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         expect_whitespaces(input)?;
@@ -1894,6 +2260,9 @@ pub struct Enumeration<'src> {
 }
 
 impl<'src> XmlElement<'src> for Enumeration<'src> {
+    fn position(&self) -> span::Position {
+        self.first.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, "(")?;
         skip_whitespaces(input);
@@ -1935,9 +2304,9 @@ impl<'src> XmlElement<'src> for Enumeration<'src> {
 /// https://www.w3.org/TR/xml/#NT-DefaultDecl
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DefaultDecl<'src> {
-    Required,
-    Implied,
-    Value { fixed: bool, attribute_value: AttValue<'src> },
+    Required(DefaultDeclRequired),
+    Implied(DefaultDeclImplied),
+    Value(DefaultDeclValue<'src>),
 }
 
 impl<'src> DefaultDecl<'src> {
@@ -1947,13 +2316,21 @@ impl<'src> DefaultDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for DefaultDecl<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::Required(DefaultDeclRequired { position }) => *position,
+            Self::Implied(DefaultDeclImplied { position }) => *position,
+            Self::Value(DefaultDeclValue { position, .. }) => *position,
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
+        let position = input.pos();
         if let Some(stripped) = input.strip_prefix(Self::REQUIRED_TAG) {
             *input = stripped;
-            Ok(Self::Required)
+            Ok(Self::Required(DefaultDeclRequired { position }))
         } else if let Some(stripped) = input.strip_prefix(Self::IMPLIED_TAG) {
             *input = stripped;
-            Ok(Self::Implied)
+            Ok(Self::Implied(DefaultDeclImplied { position }))
         } else {
             let fixed = if let Some(stripped) = input.strip_prefix(Self::FIXED_TAG) {
                 *input = stripped;
@@ -1963,14 +2340,20 @@ impl<'src> XmlElement<'src> for DefaultDecl<'src> {
                 false
             };
             let attribute_value = AttValue::parse(input)?;
-            Ok(Self::Value { fixed, attribute_value })
+            Ok(Self::Value(DefaultDeclValue {
+                position,
+                fixed,
+                attribute_value,
+            }))
         }
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self {
-            Self::Required => output.write_all(Self::REQUIRED_TAG.as_bytes()),
-            Self::Implied => output.write_all(Self::IMPLIED_TAG.as_bytes()),
-            Self::Value { fixed, attribute_value } => {
+            Self::Required(_) => output.write_all(Self::REQUIRED_TAG.as_bytes()),
+            Self::Implied(_) => output.write_all(Self::IMPLIED_TAG.as_bytes()),
+            Self::Value(DefaultDeclValue {
+                fixed, attribute_value, ..
+            }) => {
                 if *fixed {
                     write!(output, "{} ", Self::FIXED_TAG)?;
                 }
@@ -1980,49 +2363,84 @@ impl<'src> XmlElement<'src> for DefaultDecl<'src> {
     }
 }
 
+/// [60a] - Default Declaration Required
+///
+/// Required Variant of the Default Declaration
+///
+/// https://www.w3.org/TR/xml/#NT-DefaultDecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DefaultDeclRequired {
+    position: span::Position,
+}
+
+/// [60b] - Default Declaration Implied
+///
+/// Implied Variant of the Default Declaration
+///
+/// https://www.w3.org/TR/xml/#NT-DefaultDecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DefaultDeclImplied {
+    position: span::Position,
+}
+
+/// [60c] - Default Declaration Value
+///
+/// Value Variant of the Default Declaration
+///
+/// https://www.w3.org/TR/xml/#NT-DefaultDecl
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DefaultDeclValue<'src> {
+    position: span::Position,
+    fixed: bool,
+    attribute_value: AttValue<'src>,
+}
+
 /// [66] - Character Reference
 ///
 /// https://www.w3.org/TR/xml/#NT-CharRef
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CharRef<'src> {
+pub struct CharRef {
+    position: span::Position,
     char_point: u64,
-    span: span::Span<'src>,
 }
 
-impl<'src> CharRef<'src> {
+impl<'src> CharRef {
     const OPENING_TAG: &'static str = "&#";
     const CLOSING_TAG: &'static str = ";";
 }
 
-impl<'src> XmlElement<'src> for CharRef<'src> {
+impl<'src> XmlElement<'src> for CharRef {
+    fn position(&self) -> span::Position {
+        self.position
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
-        let (char_point, span) = match input.first_char() {
+        let (char_point, position) = match input.first_char() {
             Some('x') => {
                 input.bump();
                 let nums = expect_string::<HexadecimalDigits, HexadecimalDigits>(input)?;
                 (
                     u64::from_str_radix(nums.str(), 16).map_err(|_| XmlParsingError::unexpected(&["hex digits"], *input))?,
-                    nums,
+                    nums.pos(),
                 )
             }
             _ => {
                 let nums = expect_string::<DecimalDigits, DecimalDigits>(input)?;
                 (
                     u64::from_str_radix(nums.str(), 10).map_err(|_| XmlParsingError::unexpected(&["digits"], *input))?,
-                    nums,
+                    nums.pos(),
                 )
             }
         };
         expect_bytes(input, Self::CLOSING_TAG)?;
-        Ok(CharRef { char_point, span })
+        Ok(CharRef { position, char_point })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         write!(output, "&#x{:x};", self.char_point)
     }
 }
 
-impl<'src> std::fmt::Display for CharRef<'src> {
+impl<'src> std::fmt::Display for CharRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "&#x{:x};", self.char_point)
     }
@@ -2034,7 +2452,7 @@ impl<'src> std::fmt::Display for CharRef<'src> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Reference<'src> {
     EntityRef(EntityRef<'src>),
-    CharRef(CharRef<'src>),
+    CharRef(CharRef),
 }
 
 impl<'src> Reference<'src> {
@@ -2042,6 +2460,12 @@ impl<'src> Reference<'src> {
 }
 
 impl<'src> XmlElement<'src> for Reference<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::EntityRef(entity) => entity.position(),
+            Self::CharRef(character) => character.position(),
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         if input.str().starts_with(CharRef::OPENING_TAG) {
             Ok(Self::CharRef(CharRef::parse(input)?))
@@ -2085,6 +2509,9 @@ impl<'src> EntityRef<'src> {
 }
 
 impl<'src> XmlElement<'src> for EntityRef<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         let name = Name::parse(input)?;
@@ -2119,6 +2546,9 @@ impl<'src> PEReference<'src> {
 }
 
 impl<'src> XmlElement<'src> for PEReference<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         let name = Name::parse(input)?;
@@ -2155,6 +2585,12 @@ impl<'src> EntityDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for EntityDecl<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::GEDecl(decl) => decl.position(),
+            Self::PEDecl(decl) => decl.position(),
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         /* Look for the % char to dissociate the type */
         let mut temp = *input;
@@ -2189,6 +2625,9 @@ impl<'src> GEDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for GEDecl<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         expect_whitespaces(input)?;
@@ -2222,6 +2661,9 @@ impl<'src> PEDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for PEDecl<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         expect_whitespaces(input)?;
@@ -2248,15 +2690,19 @@ impl<'src> XmlElement<'src> for PEDecl<'src> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EntityDef<'src> {
     EntityValue(EntityValue<'src>),
-    External {
-        id: ExternalID<'src>,
-        decl: Option<NDataDecl<'src>>,
-    },
+    External(EntityDefExternal<'src>),
 }
 
 impl<'src> XmlElement<'src> for EntityDef<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::EntityValue(value) => value.position,
+            Self::External(external) => external.position,
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         if input.str().starts_with(ExternalID::SYSTEM_TAG) || input.str().starts_with(ExternalID::PUBLIC_TAG) {
+            let position = input.pos();
             let id = ExternalID::parse(input)?;
             let mut temp = *input;
             let skipped = skip_whitespaces(&mut temp);
@@ -2265,7 +2711,7 @@ impl<'src> XmlElement<'src> for EntityDef<'src> {
             } else {
                 None
             };
-            Ok(Self::External { id, decl })
+            Ok(Self::External(EntityDefExternal { position, id, decl }))
         } else {
             Ok(Self::EntityValue(EntityValue::parse(input)?))
         }
@@ -2273,7 +2719,7 @@ impl<'src> XmlElement<'src> for EntityDef<'src> {
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self {
             Self::EntityValue(value) => value.write(output),
-            Self::External { id, decl } => {
+            Self::External(EntityDefExternal { id, decl, .. }) => {
                 id.write(output)?;
                 if let Some(decl) = &decl {
                     decl.write(output)?;
@@ -2282,6 +2728,18 @@ impl<'src> XmlElement<'src> for EntityDef<'src> {
             }
         }
     }
+}
+
+/// [73a] - Entity Definition External
+///
+/// External Variant of the Entity Definition
+///
+/// https://www.w3.org/TR/xml/#NT-EntityDef
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EntityDefExternal<'src> {
+    position: span::Position,
+    id: ExternalID<'src>,
+    decl: Option<NDataDecl<'src>>,
 }
 
 /// [74] - P Entity Definition
@@ -2294,6 +2752,12 @@ pub enum PEDef<'src> {
 }
 
 impl<'src> XmlElement<'src> for PEDef<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            Self::EntityValue(value) => value.position(),
+            Self::ExternalID(id) => id.position(),
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         if input.str().starts_with(ExternalID::SYSTEM_TAG) || input.str().starts_with(ExternalID::PUBLIC_TAG) {
             Ok(Self::ExternalID(ExternalID::parse(input)?))
@@ -2314,13 +2778,8 @@ impl<'src> XmlElement<'src> for PEDef<'src> {
 /// https://www.w3.org/TR/xml/#NT-ExternalID
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ExternalID<'src> {
-    System {
-        system: SystemLiteral<'src>,
-    },
-    Public {
-        pubid: PubidLiteral<'src>,
-        system: SystemLiteral<'src>,
-    },
+    System(ExternalIDSystem<'src>),
+    Public(ExternalIDPublic<'src>),
 }
 
 impl<'src> ExternalID<'src> {
@@ -2328,30 +2787,36 @@ impl<'src> ExternalID<'src> {
     const PUBLIC_TAG: &'static str = "PUBLIC";
 }
 impl<'src> XmlElement<'src> for ExternalID<'src> {
+    fn position(&self) -> span::Position {
+        match self {
+            ExternalID::System(ExternalIDSystem { system }) => system.position(),
+            ExternalID::Public(ExternalIDPublic { pubid, .. }) => pubid.position(),
+        }
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         if let Some(stripped) = input.strip_prefix(Self::SYSTEM_TAG) {
             *input = stripped;
             skip_whitespaces(input);
             let system = SystemLiteral::parse(input)?;
-            Ok(Self::System { system })
+            Ok(Self::System(ExternalIDSystem { system }))
         } else if let Some(stripped) = input.strip_prefix(Self::PUBLIC_TAG) {
             *input = stripped;
             skip_whitespaces(input);
             let pubid = PubidLiteral::parse(input)?;
             skip_whitespaces(input);
             let system = SystemLiteral::parse(input)?;
-            Ok(Self::Public { pubid, system })
+            Ok(Self::Public(ExternalIDPublic { pubid, system }))
         } else {
             Err(XmlParsingError::unexpected(&[Self::SYSTEM_TAG, Self::PUBLIC_TAG], *input))
         }
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         match self {
-            ExternalID::System { system } => {
+            ExternalID::System(ExternalIDSystem { system }) => {
                 write!(output, "{} ", Self::SYSTEM_TAG)?;
                 system.write(output)?;
             }
-            ExternalID::Public { pubid, system } => {
+            ExternalID::Public(ExternalIDPublic { pubid, system }) => {
                 write!(output, "{} ", Self::PUBLIC_TAG)?;
                 pubid.write(output)?;
                 write!(output, " ")?;
@@ -2360,6 +2825,27 @@ impl<'src> XmlElement<'src> for ExternalID<'src> {
         }
         Ok(())
     }
+}
+
+/// [75a] - External Id System
+///
+/// System variant of the External Id
+///
+/// https://www.w3.org/TR/xml/#NT-ExternalID
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ExternalIDSystem<'src> {
+    system: SystemLiteral<'src>,
+}
+
+/// [75b] - External Id Public
+///
+/// Public variant of the External Id
+///
+/// https://www.w3.org/TR/xml/#NT-ExternalID
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ExternalIDPublic<'src> {
+    pubid: PubidLiteral<'src>,
+    system: SystemLiteral<'src>,
 }
 
 /// [76] - Notation Data Declaration
@@ -2375,6 +2861,9 @@ impl<'src> NDataDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for NDataDecl<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_whitespaces(input)?;
         expect_bytes(input, Self::TAG)?;
@@ -2392,13 +2881,19 @@ impl<'src> XmlElement<'src> for NDataDecl<'src> {
 /// https://www.w3.org/TR/xml/#NT-EncodingDecl
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EncodingDecl<'src> {
+    pub position: span::Position,
     pub encoding: span::Span<'src>,
     pub quote: QuoteKind,
 }
 
 impl<'src> XmlElement<'src> for EncodingDecl<'src> {
+    fn position(&self) -> span::Position {
+        self.position
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_whitespaces(input)?;
+
+        let position = input.pos();
         expect_bytes(input, "encoding")?;
         skip_whitespaces(input);
         expect_bytes(input, "=")?;
@@ -2406,7 +2901,11 @@ impl<'src> XmlElement<'src> for EncodingDecl<'src> {
         let quote = QuoteKind::parse(input)?;
         let encoding = expect_string::<LatinAlphabet, ExtendedLatinAlphabet>(input)?;
         expect_bytes(input, quote.to_str())?;
-        Ok(Self { encoding, quote })
+        Ok(Self {
+            position,
+            encoding,
+            quote,
+        })
     }
     fn write<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         write!(output, " encoding={}{}{}", self.quote, self.encoding, self.quote)
@@ -2428,6 +2927,9 @@ impl<'src> NotationDecl<'src> {
 }
 
 impl<'src> XmlElement<'src> for NotationDecl<'src> {
+    fn position(&self) -> span::Position {
+        self.name.pos()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::OPENING_TAG)?;
         expect_whitespaces(input)?;
@@ -2490,6 +2992,9 @@ impl<'src> PublicID<'src> {
 }
 
 impl<'src> XmlElement<'src> for PublicID<'src> {
+    fn position(&self) -> span::Position {
+        self.literal.position()
+    }
     fn parse(input: &mut span::Span<'src>) -> Result<Self, XmlParsingError<'src>> {
         expect_bytes(input, Self::TAG)?;
         expect_whitespaces(input)?;
